@@ -1,11 +1,10 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-* {
+*
+{
   box-sizing: border-box;
 }
-
 html, body {
   margin: 0;
   padding: 0;
@@ -17,23 +16,27 @@ html, body {
   -webkit-tap-highlight-color: transparent;
   overflow-x: hidden;
 }
-
 body {
   touch-action: manipulation;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
-
 #root {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
-
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top), 12px);
+}
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 12px);
+}
 input[type="date"] {
   min-height: 42px;
   display: inline-flex;
   align-items: center;
 }
-
 input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(1);
   opacity: 0.6;
