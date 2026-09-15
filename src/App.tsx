@@ -13,36 +13,35 @@ import {
   CheckSquare,
   Clock,
   Download,
-  Upload
+  Upload,
+  X
 } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'today' | 'tasks' | 'fronts' | 'ideas' | 'people'>('today');
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // --- Formulário na Aba Hoje ---
-  const [todayTitle, setTodayTitle] = useState('');
-  const [todayNotes, setTodayNotes] = useState('');
-
-  // --- Formulário na Aba Tarefas ---
+  // Formulário Unificado de Tarefa
   const [taskTitle, setTaskTitle] = useState('');
   const [taskNotes, setTaskNotes] = useState('');
   const [taskDate, setTaskDate] = useState('');
   const [taskFrontId, setTaskFrontId] = useState<string>('');
 
-  // --- Formulários das Outras Abas ---
+  // Formulário Frentes
   const [frontName, setFrontName] = useState('');
   const [frontColor, setFrontColor] = useState('#3b82f6');
 
+  // Formulário Ideias
   const [ideaTitle, setIdeaTitle] = useState('');
   const [ideaContent, setIdeaContent] = useState('');
 
+  // Formulário Contatos
   const [contactName, setContactName] = useState('');
   const [contactRole, setContactRole] = useState('');
   const [contactNotes, setContactNotes] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- Consultas reativas ao Dexie ---
   const tasks = useLiveQuery(() => db.tasks.reverse().toArray()) ?? [];
   const fronts = useLiveQuery(() => db.fronts.toArray()) ?? [];
   const ideas = useLiveQuery(() => db.ideas.reverse().toArray()) ?? [];
@@ -50,7 +49,13 @@ export default function App() {
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // --- Funções de Backup e Restauração ---
+  const handleOpenModal = () => {
+    if (activeTab === 'today') {
+      setTaskDate(todayStr);
+    }
+    setIsModalOpen(true);
+  };
+
   const handleExportData = async () => {
     try {
       const exportData = {
@@ -64,15 +69,13 @@ export default function App() {
 
       const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(exportData, null, 2));
       const downloadAnchor = document.createElement('a');
-      const filename = `backup-painel-${todayStr}.json`;
       downloadAnchor.setAttribute('href', dataStr);
-      downloadAnchor.setAttribute('download', filename);
+      downloadAnchor.setAttribute('download', `backup-painel-${todayStr}.json`);
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       downloadAnchor.remove();
-    } catch (err) {
-      console.error('Erro ao exportar dados:', err);
-      alert('Não foi possível gerar o backup.');
+    } catch {
+      alert('Falha ao gerar backup.');
     }
   };
 
@@ -84,62 +87,67 @@ export default function App() {
     reader.onload = async (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
-        if (!json.tasks && !json.fronts && !json.ideas && !json.contacts) {
-          alert('Arquivo de backup inválido.');
-          return;
-        }
-
-        if (confirm('Importar os dados? Novos itens serão adicionados mantendo os existentes.')) {
+        if (confirm('Deseja restaurar este backup? Dados existentes serão preservados.')) {
           if (json.tasks?.length) await db.tasks.bulkPut(json.tasks);
           if (json.fronts?.length) await db.fronts.bulkPut(json.fronts);
           if (json.ideas?.length) await db.ideas.bulkPut(json.ideas);
           if (json.contacts?.length) await db.contacts.bulkPut(json.contacts);
-          alert('Dados importados com sucesso!');
+          alert('Dados sincronizados com sucesso!');
         }
-      } catch (err) {
-        console.error('Erro na importação:', err);
-        alert('Erro ao processar o arquivo de backup.');
+      } catch {
+        alert('Arquivo de backup inválido.');
       }
     };
     reader.readAsText(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // --- Ações de Tarefa na Aba Hoje ---
-  const handleAddTodayTask = async (e: React.FormEvent) => {
+  const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!todayTitle.trim()) return;
 
-    await db.tasks.add({
-      title: todayTitle.trim(),
-      notes: todayNotes.trim() || undefined,
-      completed: false,
-      dueDate: todayStr,
-      createdAt: new Date().toISOString(),
-    });
+    if (activeTab === 'today' || activeTab === 'tasks') {
+      if (!taskTitle.trim()) return;
 
-    setTodayTitle('');
-    setTodayNotes('');
-  };
+      await db.tasks.add({
+        title: taskTitle.trim(),
+        notes: taskNotes.trim() || undefined,
+        completed: false,
+        dueDate: taskDate || undefined,
+        frontId: taskFrontId ? Number(taskFrontId) : undefined,
+        createdAt: new Date().toISOString(),
+      });
 
-  // --- Ações de Tarefa na Aba Geral de Tarefas ---
-  const handleAddTask = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!taskTitle.trim()) return;
+      setTaskTitle('');
+      setTaskNotes('');
+      setTaskDate('');
+      setTaskFrontId('');
+    } else if (activeTab === 'fronts') {
+      if (!frontName.trim()) return;
+      await db.fronts.add({ name: frontName.trim(), color: frontColor });
+      setFrontName('');
+    } else if (activeTab === 'ideas') {
+      if (!ideaTitle.trim()) return;
+      await db.ideas.add({
+        title: ideaTitle.trim(),
+        content: ideaContent.trim(),
+        createdAt: new Date().toISOString(),
+      });
+      setIdeaTitle('');
+      setIdeaContent('');
+    } else if (activeTab === 'people') {
+      if (!contactName.trim()) return;
+      await db.contacts.add({
+        name: contactName.trim(),
+        role: contactRole.trim(),
+        notes: contactNotes.trim(),
+        createdAt: new Date().toISOString(),
+      });
+      setContactName('');
+      setContactRole('');
+      setContactNotes('');
+    }
 
-    await db.tasks.add({
-      title: taskTitle.trim(),
-      notes: taskNotes.trim() || undefined,
-      completed: false,
-      dueDate: taskDate || undefined,
-      frontId: taskFrontId ? Number(taskFrontId) : undefined,
-      createdAt: new Date().toISOString(),
-    });
-
-    setTaskTitle('');
-    setTaskNotes('');
-    setTaskDate('');
-    setTaskFrontId('');
+    setIsModalOpen(false);
   };
 
   const handleToggleTask = async (task: Task) => {
@@ -152,74 +160,16 @@ export default function App() {
     await db.tasks.delete(id);
   };
 
-  // --- Ações Frentes ---
-  const handleAddFront = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!frontName.trim()) return;
-
-    await db.fronts.add({
-      name: frontName.trim(),
-      color: frontColor,
-    });
-
-    setFrontName('');
-  };
-
-  const handleDeleteFront = async (id?: number) => {
-    if (!id) return;
-    await db.fronts.delete(id);
-  };
-
-  // --- Ações Ideias ---
-  const handleAddIdea = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!ideaTitle.trim()) return;
-
-    await db.ideas.add({
-      title: ideaTitle.trim(),
-      content: ideaContent.trim(),
-      createdAt: new Date().toISOString(),
-    });
-
-    setIdeaTitle('');
-    setIdeaContent('');
-  };
-
-  const handleDeleteIdea = async (id?: number) => {
-    if (!id) return;
-    await db.ideas.delete(id);
-  };
-
-  // --- Ações Contatos ---
-  const handleAddContact = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!contactName.trim()) return;
-
-    await db.contacts.add({
-      name: contactName.trim(),
-      role: contactRole.trim(),
-      notes: contactNotes.trim(),
-      createdAt: new Date().toISOString(),
-    });
-
-    setContactName('');
-    setContactRole('');
-    setContactNotes('');
-  };
-
-  const handleDeleteContact = async (id?: number) => {
-    if (!id) return;
-    await db.contacts.delete(id);
-  };
+  const todayTasks = tasks.filter(t => t.dueDate === todayStr || (!t.dueDate && !t.completed));
 
   return (
     <div className="flex flex-col min-h-screen bg-zinc-950 text-zinc-100 font-sans">
-      {/* Barra de Topo com Exportar / Importar */}
-      <header className="sticky top-0 z-30 border-b border-zinc-800/80 bg-zinc-950/90 px-4 py-2.5 backdrop-blur-md">
+      {/* Cabeçalho Limpo com Safe Area */}
+      <header className="sticky top-0 z-20 border-b border-zinc-800/80 bg-zinc-950/95 backdrop-blur-md pt-safe px-4 pb-3">
         <div className="mx-auto flex max-w-md items-center justify-between">
           <div className="flex items-center gap-2">
             <h1 className="text-base font-semibold tracking-tight text-zinc-100">Painel Pessoal</h1>
-            <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+            <span className="rounded-full bg-zinc-800/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
               {activeTab === 'today' && 'Hoje'}
               {activeTab === 'tasks' && 'Tarefas'}
               {activeTab === 'fronts' && 'Frentes'}
@@ -231,16 +181,16 @@ export default function App() {
           <div className="flex items-center gap-1.5">
             <button
               onClick={handleExportData}
-              title="Exportar Backup dos Dados"
-              className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 transition hover:bg-zinc-800 active:scale-95"
+              title="Exportar"
+              className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 transition hover:bg-zinc-800 active:scale-95"
             >
               <Download className="h-3.5 w-3.5" />
               <span>Exportar</span>
             </button>
             <button
               onClick={() => fileInputRef.current?.click()}
-              title="Restaurar Backup"
-              className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 p-1 text-xs font-medium text-zinc-400 transition hover:bg-zinc-800 active:scale-95"
+              title="Restaurar"
+              className="p-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200 transition active:scale-95"
             >
               <Upload className="h-3.5 w-3.5" />
             </button>
@@ -255,196 +205,103 @@ export default function App() {
         </div>
       </header>
 
-      {/* Conteúdo Central */}
+      {/* Listagem Pura e Sem Poluição */}
       <main className="flex-1 px-4 py-4 max-w-md mx-auto w-full pb-28">
         
         {/* ================= ABA HOJE ================= */}
         {activeTab === 'today' && (
-          <div className="flex flex-col gap-5">
-            {/* Bloco de Adição Rápida com Campo de Notas Visível e Botão + */}
-            <section className="rounded-2xl border border-zinc-800/80 bg-zinc-900/50 p-4 shadow-sm">
-              <div className="flex items-center gap-1.5 text-zinc-300 text-xs font-semibold uppercase tracking-wider mb-3">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
+              <span className="flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5 text-emerald-400" />
-                <span>Adicionar ao Dia de Hoje</span>
+                Foco de Hoje
+              </span>
+              <span className="text-zinc-500">{todayTasks.length} pendentes</span>
+            </div>
+
+            {todayTasks.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center">
+                <p className="text-sm font-medium text-zinc-400">Tudo em dia para hoje</p>
+                <p className="text-xs text-zinc-600 mt-1">Toque no "+" para registrar uma nova tarefa.</p>
               </div>
-
-              <form onSubmit={handleAddTodayTask} className="flex flex-col gap-2.5">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    placeholder="O que precisa ser feito hoje?"
-                    value={todayTitle}
-                    onChange={(e) => setTodayTitle(e.target.value)}
-                    className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
-                  />
-                  <button
-                    type="submit"
-                    title="Adicionar à lista de hoje"
-                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-100 text-zinc-950 font-bold shadow transition hover:bg-zinc-200 active:scale-95 shrink-0"
-                  >
-                    <Plus className="h-5 w-5 stroke-[2.5]" />
-                  </button>
-                </div>
-
-                {/* Campo de Anotações SEMPRE VISÍVEL */}
-                <textarea
-                  placeholder="Anotações, links, detalhes (opcional)..."
-                  rows={2}
-                  value={todayNotes}
-                  onChange={(e) => setTodayNotes(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-700/70 bg-zinc-900/80 px-3.5 py-2 text-xs text-zinc-200 placeholder-zinc-500 outline-none focus:border-zinc-400 resize-none"
-                />
-              </form>
-            </section>
-
-            {/* Listagem de Hoje */}
-            <section className="flex flex-col gap-2">
-              <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider">
-                <span>Foco do Dia</span>
-                <span>
-                  {tasks.filter(t => t.dueDate === todayStr || (!t.dueDate && !t.completed)).length} itens
-                </span>
-              </div>
-
-              {tasks.filter(t => t.dueDate === todayStr || (!t.dueDate && !t.completed)).length === 0 ? (
-                <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">
-                  Nenhuma pendência para hoje. Tudo pronto!
-                </div>
-              ) : (
-                tasks
-                  .filter(t => t.dueDate === todayStr || (!t.dueDate && !t.completed))
-                  .map(task => {
-                    const front = fronts.find(f => f.id === task.frontId);
-                    return (
-                      <div
-                        key={task.id}
-                        className="flex flex-col gap-1.5 rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3.5 transition"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleTask(task)}
-                            className="flex flex-1 items-center gap-3 text-left overflow-hidden"
-                          >
-                            {task.completed ? (
-                              <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
-                            ) : (
-                              <Circle className="h-5 w-5 text-zinc-600 shrink-0" />
-                            )}
-                            <div className="flex flex-col min-w-0">
-                              <span className={`text-sm truncate ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>
-                                {task.title}
+            ) : (
+              <div className="flex flex-col gap-2">
+                {todayTasks.map(task => {
+                  const front = fronts.find(f => f.id === task.frontId);
+                  return (
+                    <div
+                      key={task.id}
+                      className="flex flex-col gap-1.5 rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-3.5 transition active:bg-zinc-900/60"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleTask(task)}
+                          className="flex flex-1 items-center gap-3 text-left overflow-hidden"
+                        >
+                          {task.completed ? (
+                            <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
+                          ) : (
+                            <Circle className="h-5 w-5 text-zinc-600 shrink-0" />
+                          )}
+                          <div className="flex flex-col min-w-0">
+                            <span className={`text-sm truncate ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>
+                              {task.title}
+                            </span>
+                            {front && (
+                              <span 
+                                className="w-fit mt-0.5 px-1.5 py-0.2 rounded text-[10px] font-medium"
+                                style={{ backgroundColor: `${front.color}22`, color: front.color }}
+                              >
+                                {front.name}
                               </span>
-                              {front && (
-                                <span 
-                                  className="w-fit mt-0.5 px-1.5 py-0.2 rounded text-[10px] font-medium"
-                                  style={{ backgroundColor: `${front.color}22`, color: front.color }}
-                                >
-                                  {front.name}
-                                </span>
-                              )}
-                            </div>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteTask(task.id)}
-                            className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-
-                        {task.notes && (
-                          <div className="pl-8 pt-1 border-t border-zinc-800/40">
-                            <p className="text-xs text-zinc-400 whitespace-pre-wrap">{task.notes}</p>
+                            )}
                           </div>
-                        )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTask(task.id)}
+                          className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
-                    );
-                  })
-              )}
-            </section>
+
+                      {task.notes && (
+                        <div className="pl-8 pt-1 border-t border-zinc-800/30">
+                          <p className="text-xs text-zinc-400 whitespace-pre-wrap leading-relaxed">{task.notes}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
         {/* ================= ABA TAREFAS ================= */}
         {activeTab === 'tasks' && (
-          <div className="flex flex-col gap-5">
-            <section className="rounded-2xl border border-zinc-800/80 bg-zinc-900/50 p-4">
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">Nova Tarefa</h2>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
+              <span>Todas as Tarefas</span>
+              <span className="text-zinc-500">{tasks.length} total</span>
+            </div>
 
-              <form onSubmit={handleAddTask} className="flex flex-col gap-3">
-                <input
-                  type="text"
-                  placeholder="Nome da tarefa..."
-                  value={taskTitle}
-                  onChange={(e) => setTaskTitle(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
-                />
-
-                {/* Campo de Anotações SEMPRE VISÍVEL */}
-                <textarea
-                  placeholder="Anotações detalhadas, links, observações..."
-                  rows={2}
-                  value={taskNotes}
-                  onChange={(e) => setTaskNotes(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-700/70 bg-zinc-900/80 px-3.5 py-2 text-xs text-zinc-200 placeholder-zinc-500 outline-none focus:border-zinc-400 resize-none"
-                />
-                
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Data</label>
-                    <input
-                      type="date"
-                      value={taskDate}
-                      onChange={(e) => setTaskDate(e.target.value)}
-                      className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-100 outline-none [color-scheme:dark]"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Frente</label>
-                    <select
-                      value={taskFrontId}
-                      onChange={(e) => setTaskFrontId(e.target.value)}
-                      className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none [color-scheme:dark]"
-                    >
-                      <option value="">Sem frente</option>
-                      {fronts.map(f => (
-                        <option key={f.id} value={f.id}>{f.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  className="mt-1 flex items-center justify-center gap-1.5 rounded-xl bg-zinc-100 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 active:scale-95"
-                >
-                  <Plus className="h-4 w-4 stroke-[2.5]" />
-                  Adicionar Tarefa
-                </button>
-              </form>
-            </section>
-
-            <section className="flex flex-col gap-2">
-              <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider">
-                <span>Lista Geral</span>
-                <span>{tasks.length} total</span>
+            {tasks.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center">
+                <p className="text-sm font-medium text-zinc-400">Nenhuma tarefa cadastrada</p>
+                <p className="text-xs text-zinc-600 mt-1">Toque no "+" para registrar.</p>
               </div>
-
-              {tasks.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">
-                  Nenhuma tarefa registrada.
-                </div>
-              ) : (
-                tasks.map((task) => {
+            ) : (
+              <div className="flex flex-col gap-2">
+                {tasks.map((task) => {
                   const front = fronts.find(f => f.id === task.frontId);
                   return (
                     <div
                       key={task.id}
-                      className="flex flex-col gap-2 rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3.5 transition"
+                      className="flex flex-col gap-1.5 rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-3.5 transition"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <button
@@ -490,59 +347,36 @@ export default function App() {
                       </div>
 
                       {task.notes && (
-                        <div className="pl-8 pt-1 border-t border-zinc-800/40">
-                          <p className="text-xs text-zinc-400 whitespace-pre-wrap">{task.notes}</p>
+                        <div className="pl-8 pt-1 border-t border-zinc-800/30">
+                          <p className="text-xs text-zinc-400 whitespace-pre-wrap leading-relaxed">{task.notes}</p>
                         </div>
                       )}
                     </div>
                   );
-                })
-              )}
-            </section>
+                })}
+              </div>
+            )}
           </div>
         )}
 
         {/* ================= ABA FRENTES ================= */}
         {activeTab === 'fronts' && (
-          <div className="flex flex-col gap-5">
-            <section className="rounded-2xl border border-zinc-800/80 bg-zinc-900/50 p-4">
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">Nova Frente / Projeto</h2>
-              <form onSubmit={handleAddFront} className="flex flex-col gap-3">
-                <input
-                  type="text"
-                  placeholder="Nome da frente (ex: Recanto, Carreira, Pessoal)"
-                  value={frontName}
-                  onChange={(e) => setFrontName(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
-                />
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={frontColor}
-                    onChange={(e) => setFrontColor(e.target.value)}
-                    className="h-10 w-14 rounded-xl border border-zinc-700 bg-zinc-900 p-1 cursor-pointer"
-                  />
-                  <button
-                    type="submit"
-                    className="flex-1 rounded-xl bg-zinc-100 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 active:scale-95"
-                  >
-                    Criar Frente
-                  </button>
-                </div>
-              </form>
-            </section>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
+              <span>Frentes & Projetos</span>
+              <span className="text-zinc-500">{fronts.length} total</span>
+            </div>
 
-            <section className="flex flex-col gap-2">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Frentes Ativas</h2>
-              {fronts.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">
-                  Nenhuma frente criada. Agrupe suas tarefas por projetos.
-                </div>
-              ) : (
-                fronts.map((front) => (
+            {fronts.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center text-sm text-zinc-500">
+                Nenhuma frente cadastrada. Toque no "+" para organizar seus projetos.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {fronts.map((front) => (
                   <div
                     key={front.id}
-                    className="flex items-center justify-between rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3.5"
+                    className="flex items-center justify-between rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-3.5"
                   >
                     <div className="flex items-center gap-3">
                       <span className="h-3 w-3 rounded-full" style={{ backgroundColor: front.color }} />
@@ -550,156 +384,262 @@ export default function App() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => handleDeleteFront(front.id)}
+                      onClick={() => front.id && db.fronts.delete(front.id)}
                       className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
-                ))
-              )}
-            </section>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
         {/* ================= ABA IDEIAS ================= */}
         {activeTab === 'ideas' && (
-          <div className="flex flex-col gap-5">
-            <section className="rounded-2xl border border-zinc-800/80 bg-zinc-900/50 p-4">
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">Captura de Ideia</h2>
-              <form onSubmit={handleAddIdea} className="flex flex-col gap-3">
-                <input
-                  type="text"
-                  placeholder="Título ou tema central"
-                  value={ideaTitle}
-                  onChange={(e) => setIdeaTitle(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
-                />
-                <textarea
-                  placeholder="Detalhes ou anotação rápida..."
-                  rows={3}
-                  value={ideaContent}
-                  onChange={(e) => setIdeaContent(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400 resize-none"
-                />
-                <button
-                  type="submit"
-                  className="flex items-center justify-center gap-1.5 rounded-xl bg-zinc-100 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 active:scale-95"
-                >
-                  <Plus className="h-4 w-4 stroke-[2.5]" />
-                  Salvar Ideia
-                </button>
-              </form>
-            </section>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
+              <span>Caderno de Ideias</span>
+              <span className="text-zinc-500">{ideas.length} total</span>
+            </div>
 
-            <section className="flex flex-col gap-2">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Caderno de Ideias</h2>
-              {ideas.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">
-                  Nenhuma ideia anotada ainda.
-                </div>
-              ) : (
-                ideas.map((idea) => (
+            {ideas.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center text-sm text-zinc-500">
+                Nenhum registro ainda. Toque no "+" para capturar ideias rápidas.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {ideas.map((idea) => (
                   <div
                     key={idea.id}
-                    className="flex flex-col gap-1.5 rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4"
+                    className="flex flex-col gap-1.5 rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-4"
                   >
                     <div className="flex items-start justify-between">
                       <h3 className="text-sm font-medium text-zinc-200">{idea.title}</h3>
                       <button
                         type="button"
-                        onClick={() => handleDeleteIdea(idea.id)}
+                        onClick={() => idea.id && db.ideas.delete(idea.id)}
                         className="p-1 text-zinc-500 hover:text-rose-400 transition"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                     {idea.content && (
-                      <p className="text-xs text-zinc-400 whitespace-pre-wrap">{idea.content}</p>
+                      <p className="text-xs text-zinc-400 whitespace-pre-wrap leading-relaxed">{idea.content}</p>
                     )}
                   </div>
-                ))
-              )}
-            </section>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
         {/* ================= ABA CONTATOS ================= */}
         {activeTab === 'people' && (
-          <div className="flex flex-col gap-5">
-            <section className="rounded-2xl border border-zinc-800/80 bg-zinc-900/50 p-4">
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">Novo Contato</h2>
-              <form onSubmit={handleAddContact} className="flex flex-col gap-3">
-                <input
-                  type="text"
-                  placeholder="Nome"
-                  value={contactName}
-                  onChange={(e) => setContactName(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
-                />
-                <input
-                  type="text"
-                  placeholder="Papel / Cargo / Contexto (ex: Fornecedor, Cliente)"
-                  value={contactRole}
-                  onChange={(e) => setContactRole(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
-                />
-                <input
-                  type="text"
-                  placeholder="Notas adicionais ou telefone"
-                  value={contactNotes}
-                  onChange={(e) => setContactNotes(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
-                />
-                <button
-                  type="submit"
-                  className="flex items-center justify-center gap-1.5 rounded-xl bg-zinc-100 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 active:scale-95"
-                >
-                  <Plus className="h-4 w-4 stroke-[2.5]" />
-                  Salvar Contato
-                </button>
-              </form>
-            </section>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
+              <span>Diretório de Contatos</span>
+              <span className="text-zinc-500">{contacts.length} total</span>
+            </div>
 
-            <section className="flex flex-col gap-2">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Diretório de Contatos</h2>
-              {contacts.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">
-                  Nenhum contato salvo ainda.
-                </div>
-              ) : (
-                contacts.map((contact) => (
+            {contacts.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center text-sm text-zinc-500">
+                Nenhum contato salvo. Toque no "+" para registrar contatos-chave.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {contacts.map((contact) => (
                   <div
                     key={contact.id}
-                    className="flex items-center justify-between rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3.5"
+                    className="flex items-center justify-between rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-3.5"
                   >
                     <div className="flex flex-col min-w-0">
                       <span className="text-sm font-medium text-zinc-200">{contact.name}</span>
                       {contact.role && (
                         <span className="text-xs text-zinc-400">{contact.role}</span>
                       )}
-                      {contactNotes && (
+                      {contact.notes && (
                         <span className="text-[11px] text-zinc-500 mt-0.5">{contact.notes}</span>
                       )}
                     </div>
                     <button
                       type="button"
-                      onClick={() => handleDeleteContact(contact.id)}
+                      onClick={() => contact.id && db.contacts.delete(contact.id)}
                       className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
-                ))
-              )}
-            </section>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
       </main>
 
-      {/* Barra Inferior com 5 Abas */}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-800/80 bg-zinc-950/95 px-3 py-2 backdrop-blur-lg">
+      {/* Único Botão Flutuante (+) no Canto Inferior Direito */}
+      <button
+        type="button"
+        onClick={handleOpenModal}
+        className="fixed bottom-20 right-5 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 text-zinc-950 shadow-lg shadow-black/50 transition active:scale-90"
+        title="Adicionar"
+      >
+        <Plus className="h-6 w-6 stroke-[2.5]" />
+      </button>
+
+      {/* Gaveta Modal Padronizada */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm p-0">
+          <div 
+            className="w-full max-w-md rounded-t-3xl border-t border-zinc-800 bg-zinc-950 p-5 shadow-2xl pb-safe animate-in slide-in-from-bottom duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                {activeTab === 'today' && 'Adicionar ao Dia de Hoje'}
+                {activeTab === 'tasks' && 'Nova Tarefa'}
+                {activeTab === 'fronts' && 'Nova Frente'}
+                {activeTab === 'ideas' && 'Nova Ideia'}
+                {activeTab === 'people' && 'Novo Contato'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="p-1 rounded-full text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900 transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveItem} className="flex flex-col gap-3">
+              {(activeTab === 'today' || activeTab === 'tasks') && (
+                <>
+                  <input
+                    type="text"
+                    placeholder="O que precisa ser feito?"
+                    value={taskTitle}
+                    onChange={(e) => setTaskTitle(e.target.value)}
+                    autoFocus
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                  />
+                  <textarea
+                    placeholder="Anotações, links ou detalhes..."
+                    rows={3}
+                    value={taskNotes}
+                    onChange={(e) => setTaskNotes(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-xs text-zinc-200 placeholder-zinc-500 outline-none focus:border-zinc-400 resize-none"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] uppercase font-semibold text-zinc-500">Data</label>
+                      <input
+                        type="date"
+                        value={taskDate}
+                        onChange={(e) => setTaskDate(e.target.value)}
+                        className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-100 outline-none [color-scheme:dark]"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] uppercase font-semibold text-zinc-500">Frente</label>
+                      <select
+                        value={taskFrontId}
+                        onChange={(e) => setTaskFrontId(e.target.value)}
+                        className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 outline-none [color-scheme:dark]"
+                      >
+                        <option value="">Sem frente</option>
+                        {fronts.map(f => (
+                          <option key={f.id} value={f.id}>{f.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {activeTab === 'fronts' && (
+                <>
+                  <input
+                    type="text"
+                    placeholder="Nome da frente (ex: Recanto, Carreira)"
+                    value={frontName}
+                    onChange={(e) => setFrontName(e.target.value)}
+                    autoFocus
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                  />
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-zinc-400">Cor de Identificação:</label>
+                    <input
+                      type="color"
+                      value={frontColor}
+                      onChange={(e) => setFrontColor(e.target.value)}
+                      className="h-9 w-12 rounded-xl border border-zinc-700 bg-zinc-900 p-1 cursor-pointer"
+                    />
+                  </div>
+                </>
+              )}
+
+              {activeTab === 'ideas' && (
+                <>
+                  <input
+                    type="text"
+                    placeholder="Título da ideia"
+                    value={ideaTitle}
+                    onChange={(e) => setIdeaTitle(e.target.value)}
+                    autoFocus
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                  />
+                  <textarea
+                    placeholder="Anotações e desenvolvimento..."
+                    rows={4}
+                    value={ideaContent}
+                    onChange={(e) => setIdeaContent(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-xs text-zinc-200 placeholder-zinc-500 outline-none focus:border-zinc-400 resize-none"
+                  />
+                </>
+              )}
+
+              {activeTab === 'people' && (
+                <>
+                  <input
+                    type="text"
+                    placeholder="Nome completo"
+                    value={contactName}
+                    onChange={(e) => setContactName(e.target.value)}
+                    autoFocus
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Cargo ou papel (ex: Fornecedor, Cerimonialista)"
+                    value={contactRole}
+                    onChange={(e) => setContactRole(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Telefone ou anotações"
+                    value={contactNotes}
+                    onChange={(e) => setContactNotes(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                  />
+                </>
+              )}
+
+              <button
+                type="submit"
+                className="mt-2 w-full rounded-xl bg-zinc-100 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 active:scale-98"
+              >
+                Salvar
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Barra de Navegação Inferior */}
+      <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-800/80 bg-zinc-950/95 px-3 pt-2 pb-safe backdrop-blur-lg">
         <div className="mx-auto flex max-w-md items-center justify-around">
           <button
             type="button"
