@@ -27,3 +27,16 @@ body {
   display: flex;
   flex-direction: column;
 }
+
+/* Ajuste específico para input de data no iOS Safari */
+input[type="date"] {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.6;
+  cursor: pointer;
+}
