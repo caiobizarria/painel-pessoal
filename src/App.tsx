@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Task, type Front, type Idea, type Contact } from './core/db/schema';
+import { db, type Task } from './core/db/schema';
 import { 
   CheckCircle2, 
   Circle, 
@@ -13,36 +13,33 @@ import {
   CheckSquare,
   Clock,
   Download,
-  Upload,
-  AlignLeft,
-  ChevronDown,
-  ChevronUp
+  Upload
 } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'today' | 'tasks' | 'fronts' | 'ideas' | 'people'>('today');
 
-  // --- Estados do Formulário de Tarefas ---
+  // --- Formulário na Aba Hoje ---
+  const [todayTitle, setTodayTitle] = useState('');
+  const [todayNotes, setTodayNotes] = useState('');
+
+  // --- Formulário na Aba Tarefas ---
   const [taskTitle, setTaskTitle] = useState('');
   const [taskNotes, setTaskNotes] = useState('');
   const [taskDate, setTaskDate] = useState('');
   const [taskFrontId, setTaskFrontId] = useState<string>('');
-  const [showNotesField, setShowNotesField] = useState(false);
 
-  // --- Estados de Frentes ---
+  // --- Formulários das Outras Abas ---
   const [frontName, setFrontName] = useState('');
   const [frontColor, setFrontColor] = useState('#3b82f6');
 
-  // --- Estados de Ideias ---
   const [ideaTitle, setIdeaTitle] = useState('');
   const [ideaContent, setIdeaContent] = useState('');
 
-  // --- Estados de Contatos ---
   const [contactName, setContactName] = useState('');
   const [contactRole, setContactRole] = useState('');
   const [contactNotes, setContactNotes] = useState('');
 
-  // Referência para input de arquivo (backup import)
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Consultas reativas ao Dexie ---
@@ -92,7 +89,7 @@ export default function App() {
           return;
         }
 
-        if (confirm('Importar os dados? Itens existentes serão preservados e novos serão adicionados.')) {
+        if (confirm('Importar os dados? Novos itens serão adicionados mantendo os existentes.')) {
           if (json.tasks?.length) await db.tasks.bulkPut(json.tasks);
           if (json.fronts?.length) await db.fronts.bulkPut(json.fronts);
           if (json.ideas?.length) await db.ideas.bulkPut(json.ideas);
@@ -108,7 +105,24 @@ export default function App() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // --- Handlers Tarefas ---
+  // --- Ações de Tarefa na Aba Hoje ---
+  const handleAddTodayTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!todayTitle.trim()) return;
+
+    await db.tasks.add({
+      title: todayTitle.trim(),
+      notes: todayNotes.trim() || undefined,
+      completed: false,
+      dueDate: todayStr,
+      createdAt: new Date().toISOString(),
+    });
+
+    setTodayTitle('');
+    setTodayNotes('');
+  };
+
+  // --- Ações de Tarefa na Aba Geral de Tarefas ---
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!taskTitle.trim()) return;
@@ -126,7 +140,6 @@ export default function App() {
     setTaskNotes('');
     setTaskDate('');
     setTaskFrontId('');
-    setShowNotesField(false);
   };
 
   const handleToggleTask = async (task: Task) => {
@@ -139,7 +152,7 @@ export default function App() {
     await db.tasks.delete(id);
   };
 
-  // --- Handlers Frentes ---
+  // --- Ações Frentes ---
   const handleAddFront = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!frontName.trim()) return;
@@ -157,7 +170,7 @@ export default function App() {
     await db.fronts.delete(id);
   };
 
-  // --- Handlers Ideias ---
+  // --- Ações Ideias ---
   const handleAddIdea = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ideaTitle.trim()) return;
@@ -177,7 +190,7 @@ export default function App() {
     await db.ideas.delete(id);
   };
 
-  // --- Handlers Contatos ---
+  // --- Ações Contatos ---
   const handleAddContact = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!contactName.trim()) return;
@@ -201,7 +214,7 @@ export default function App() {
 
   return (
     <div className="flex flex-col min-h-screen bg-zinc-950 text-zinc-100 font-sans">
-      {/* Barra de Topo com Botões de Export/Import */}
+      {/* Barra de Topo com Exportar / Importar */}
       <header className="sticky top-0 z-30 border-b border-zinc-800/80 bg-zinc-950/90 px-4 py-2.5 backdrop-blur-md">
         <div className="mx-auto flex max-w-md items-center justify-between">
           <div className="flex items-center gap-2">
@@ -215,11 +228,11 @@ export default function App() {
             </span>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={handleExportData}
-              title="Exportar Backup"
-              className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 active:scale-95"
+              title="Exportar Backup dos Dados"
+              className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-200 transition hover:bg-zinc-800 active:scale-95"
             >
               <Download className="h-3.5 w-3.5" />
               <span>Exportar</span>
@@ -227,7 +240,7 @@ export default function App() {
             <button
               onClick={() => fileInputRef.current?.click()}
               title="Restaurar Backup"
-              className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 active:scale-95"
+              className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 p-1 text-xs font-medium text-zinc-400 transition hover:bg-zinc-800 active:scale-95"
             >
               <Upload className="h-3.5 w-3.5" />
             </button>
@@ -247,51 +260,111 @@ export default function App() {
         
         {/* ================= ABA HOJE ================= */}
         {activeTab === 'today' && (
-          <div className="flex flex-col gap-4">
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
-              <div className="flex items-center gap-2 text-zinc-400 text-xs font-semibold uppercase tracking-wider">
-                <Clock className="h-4 w-4 text-emerald-400" />
-                Foco do Dia
+          <div className="flex flex-col gap-5">
+            {/* Bloco de Adição Rápida com Campo de Notas Visível e Botão + */}
+            <section className="rounded-2xl border border-zinc-800/80 bg-zinc-900/50 p-4 shadow-sm">
+              <div className="flex items-center gap-1.5 text-zinc-300 text-xs font-semibold uppercase tracking-wider mb-3">
+                <Clock className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Adicionar ao Dia de Hoje</span>
               </div>
-              <p className="mt-1 text-xs text-zinc-500">Tarefas prioritárias e agendadas para hoje ({todayStr}).</p>
-            </div>
 
-            <div className="flex flex-col gap-2">
+              <form onSubmit={handleAddTodayTask} className="flex flex-col gap-2.5">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="O que precisa ser feito hoje?"
+                    value={todayTitle}
+                    onChange={(e) => setTodayTitle(e.target.value)}
+                    className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                  />
+                  <button
+                    type="submit"
+                    title="Adicionar à lista de hoje"
+                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-100 text-zinc-950 font-bold shadow transition hover:bg-zinc-200 active:scale-95 shrink-0"
+                  >
+                    <Plus className="h-5 w-5 stroke-[2.5]" />
+                  </button>
+                </div>
+
+                {/* Campo de Anotações SEMPRE VISÍVEL */}
+                <textarea
+                  placeholder="Anotações, links, detalhes (opcional)..."
+                  rows={2}
+                  value={todayNotes}
+                  onChange={(e) => setTodayNotes(e.target.value)}
+                  className="w-full rounded-xl border border-zinc-700/70 bg-zinc-900/80 px-3.5 py-2 text-xs text-zinc-200 placeholder-zinc-500 outline-none focus:border-zinc-400 resize-none"
+                />
+              </form>
+            </section>
+
+            {/* Listagem de Hoje */}
+            <section className="flex flex-col gap-2">
+              <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider">
+                <span>Foco do Dia</span>
+                <span>
+                  {tasks.filter(t => t.dueDate === todayStr || (!t.dueDate && !t.completed)).length} itens
+                </span>
+              </div>
+
               {tasks.filter(t => t.dueDate === todayStr || (!t.dueDate && !t.completed)).length === 0 ? (
                 <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">
-                  Nenhuma pendência prioritária para hoje.
+                  Nenhuma pendência para hoje. Tudo pronto!
                 </div>
               ) : (
                 tasks
                   .filter(t => t.dueDate === todayStr || (!t.dueDate && !t.completed))
-                  .map(task => (
-                    <div
-                      key={task.id}
-                      className="flex flex-col rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3.5 gap-1.5"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleTask(task)}
-                          className="flex flex-1 items-center gap-3 text-left overflow-hidden"
-                        >
-                          {task.completed ? (
-                            <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
-                          ) : (
-                            <Circle className="h-5 w-5 text-zinc-600 shrink-0" />
-                          )}
-                          <span className={`text-sm truncate ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>
-                            {task.title}
-                          </span>
-                        </button>
+                  .map(task => {
+                    const front = fronts.find(f => f.id === task.frontId);
+                    return (
+                      <div
+                        key={task.id}
+                        className="flex flex-col gap-1.5 rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3.5 transition"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTask(task)}
+                            className="flex flex-1 items-center gap-3 text-left overflow-hidden"
+                          >
+                            {task.completed ? (
+                              <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
+                            ) : (
+                              <Circle className="h-5 w-5 text-zinc-600 shrink-0" />
+                            )}
+                            <div className="flex flex-col min-w-0">
+                              <span className={`text-sm truncate ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>
+                                {task.title}
+                              </span>
+                              {front && (
+                                <span 
+                                  className="w-fit mt-0.5 px-1.5 py-0.2 rounded text-[10px] font-medium"
+                                  style={{ backgroundColor: `${front.color}22`, color: front.color }}
+                                >
+                                  {front.name}
+                                </span>
+                              )}
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTask(task.id)}
+                            className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+
+                        {task.notes && (
+                          <div className="pl-8 pt-1 border-t border-zinc-800/40">
+                            <p className="text-xs text-zinc-400 whitespace-pre-wrap">{task.notes}</p>
+                          </div>
+                        )}
                       </div>
-                      {task.notes && (
-                        <p className="pl-8 text-xs text-zinc-400 whitespace-pre-wrap">{task.notes}</p>
-                      )}
-                    </div>
-                  ))
+                    );
+                  })
               )}
-            </div>
+            </section>
           </div>
         )}
 
@@ -299,18 +372,7 @@ export default function App() {
         {activeTab === 'tasks' && (
           <div className="flex flex-col gap-5">
             <section className="rounded-2xl border border-zinc-800/80 bg-zinc-900/50 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Nova Tarefa</h2>
-                <button
-                  type="button"
-                  onClick={() => setShowNotesField(!showNotesField)}
-                  className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200 transition"
-                >
-                  <AlignLeft className="h-3.5 w-3.5" />
-                  {showNotesField ? 'Ocultar Nota' : '+ Adicionar Detalhes'}
-                  {showNotesField ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                </button>
-              </div>
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">Nova Tarefa</h2>
 
               <form onSubmit={handleAddTask} className="flex flex-col gap-3">
                 <input
@@ -321,15 +383,14 @@ export default function App() {
                   className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
                 />
 
-                {showNotesField && (
-                  <textarea
-                    placeholder="Anotações detalhadas, links, observações..."
-                    rows={3}
-                    value={taskNotes}
-                    onChange={(e) => setTaskNotes(e.target.value)}
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400 resize-none"
-                  />
-                )}
+                {/* Campo de Anotações SEMPRE VISÍVEL */}
+                <textarea
+                  placeholder="Anotações detalhadas, links, observações..."
+                  rows={2}
+                  value={taskNotes}
+                  onChange={(e) => setTaskNotes(e.target.value)}
+                  className="w-full rounded-xl border border-zinc-700/70 bg-zinc-900/80 px-3.5 py-2 text-xs text-zinc-200 placeholder-zinc-500 outline-none focus:border-zinc-400 resize-none"
+                />
                 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="flex flex-col gap-1">
@@ -429,7 +490,7 @@ export default function App() {
                       </div>
 
                       {task.notes && (
-                        <div className="pl-8 pt-1 border-t border-zinc-800/50">
+                        <div className="pl-8 pt-1 border-t border-zinc-800/40">
                           <p className="text-xs text-zinc-400 whitespace-pre-wrap">{task.notes}</p>
                         </div>
                       )}
@@ -617,7 +678,7 @@ export default function App() {
                       {contact.role && (
                         <span className="text-xs text-zinc-400">{contact.role}</span>
                       )}
-                      {contact.notes && (
+                      {contactNotes && (
                         <span className="text-[11px] text-zinc-500 mt-0.5">{contact.notes}</span>
                       )}
                     </div>
@@ -637,7 +698,7 @@ export default function App() {
 
       </main>
 
-      {/* Barra de Navegação Inferior Fixa */}
+      {/* Barra Inferior com 5 Abas */}
       <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-800/80 bg-zinc-950/95 px-3 py-2 backdrop-blur-lg">
         <div className="mx-auto flex max-w-md items-center justify-around">
           <button

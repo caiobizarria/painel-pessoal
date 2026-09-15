@@ -45,7 +45,6 @@ export class PersonalDatabase extends Dexie {
       ideas: '++id, title, createdAt',
       contacts: '++id, name, role, createdAt',
     });
-    // Versão 2: Suporte a anotações detalhadas nas tarefas
     this.version(2).stores({
       tasks: '++id, title, notes, frontId, completed, dueDate, createdAt',
     });
