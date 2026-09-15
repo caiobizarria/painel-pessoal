@@ -3,6 +3,7 @@ import Dexie, { type Table } from 'dexie';
 export interface Task {
   id?: number;
   title: string;
+  notes?: string;
   frontId?: number;
   completed: boolean;
   dueDate?: string;
@@ -43,6 +44,10 @@ export class PersonalDatabase extends Dexie {
       fronts: '++id, name, color',
       ideas: '++id, title, createdAt',
       contacts: '++id, name, role, createdAt',
+    });
+    // Versão 2: Suporte a anotações detalhadas nas tarefas
+    this.version(2).stores({
+      tasks: '++id, title, notes, frontId, completed, dueDate, createdAt',
     });
   }
 }

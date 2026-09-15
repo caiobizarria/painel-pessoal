@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Task, type Front, type Idea, type Contact } from './core/db/schema';
 import { 
@@ -12,30 +12,38 @@ import {
   Users, 
   CheckSquare,
   Clock,
-  Tag
+  Download,
+  Upload,
+  AlignLeft,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'today' | 'tasks' | 'fronts' | 'ideas' | 'people'>('today');
 
-  // --- Estados de Formulários ---
-  // Tarefas
+  // --- Estados do Formulário de Tarefas ---
   const [taskTitle, setTaskTitle] = useState('');
+  const [taskNotes, setTaskNotes] = useState('');
   const [taskDate, setTaskDate] = useState('');
   const [taskFrontId, setTaskFrontId] = useState<string>('');
+  const [showNotesField, setShowNotesField] = useState(false);
 
-  // Frentes
+  // --- Estados de Frentes ---
   const [frontName, setFrontName] = useState('');
   const [frontColor, setFrontColor] = useState('#3b82f6');
 
-  // Ideias
+  // --- Estados de Ideias ---
   const [ideaTitle, setIdeaTitle] = useState('');
   const [ideaContent, setIdeaContent] = useState('');
 
-  // Contatos
+  // --- Estados de Contatos ---
   const [contactName, setContactName] = useState('');
   const [contactRole, setContactRole] = useState('');
   const [contactNotes, setContactNotes] = useState('');
+
+  // Referência para input de arquivo (backup import)
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Consultas reativas ao Dexie ---
   const tasks = useLiveQuery(() => db.tasks.reverse().toArray()) ?? [];
@@ -43,8 +51,62 @@ export default function App() {
   const ideas = useLiveQuery(() => db.ideas.reverse().toArray()) ?? [];
   const contacts = useLiveQuery(() => db.contacts.reverse().toArray()) ?? [];
 
-  // Data de hoje formatada (YYYY-MM-DD)
   const todayStr = new Date().toISOString().split('T')[0];
+
+  // --- Funções de Backup e Restauração ---
+  const handleExportData = async () => {
+    try {
+      const exportData = {
+        version: 2,
+        exportedAt: new Date().toISOString(),
+        tasks: await db.tasks.toArray(),
+        fronts: await db.fronts.toArray(),
+        ideas: await db.ideas.toArray(),
+        contacts: await db.contacts.toArray(),
+      };
+
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(exportData, null, 2));
+      const downloadAnchor = document.createElement('a');
+      const filename = `backup-painel-${todayStr}.json`;
+      downloadAnchor.setAttribute('href', dataStr);
+      downloadAnchor.setAttribute('download', filename);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    } catch (err) {
+      console.error('Erro ao exportar dados:', err);
+      alert('Não foi possível gerar o backup.');
+    }
+  };
+
+  const handleImportData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        if (!json.tasks && !json.fronts && !json.ideas && !json.contacts) {
+          alert('Arquivo de backup inválido.');
+          return;
+        }
+
+        if (confirm('Importar os dados? Itens existentes serão preservados e novos serão adicionados.')) {
+          if (json.tasks?.length) await db.tasks.bulkPut(json.tasks);
+          if (json.fronts?.length) await db.fronts.bulkPut(json.fronts);
+          if (json.ideas?.length) await db.ideas.bulkPut(json.ideas);
+          if (json.contacts?.length) await db.contacts.bulkPut(json.contacts);
+          alert('Dados importados com sucesso!');
+        }
+      } catch (err) {
+        console.error('Erro na importação:', err);
+        alert('Erro ao processar o arquivo de backup.');
+      }
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   // --- Handlers Tarefas ---
   const handleAddTask = async (e: React.FormEvent) => {
@@ -53,6 +115,7 @@ export default function App() {
 
     await db.tasks.add({
       title: taskTitle.trim(),
+      notes: taskNotes.trim() || undefined,
       completed: false,
       dueDate: taskDate || undefined,
       frontId: taskFrontId ? Number(taskFrontId) : undefined,
@@ -60,8 +123,10 @@ export default function App() {
     });
 
     setTaskTitle('');
+    setTaskNotes('');
     setTaskDate('');
     setTaskFrontId('');
+    setShowNotesField(false);
   };
 
   const handleToggleTask = async (task: Task) => {
@@ -136,21 +201,48 @@ export default function App() {
 
   return (
     <div className="flex flex-col min-h-screen bg-zinc-950 text-zinc-100 font-sans">
-      {/* Barra de Topo Fixa */}
-      <header className="sticky top-0 z-30 border-b border-zinc-800/80 bg-zinc-950/90 px-4 py-3 backdrop-blur-md">
+      {/* Barra de Topo com Botões de Export/Import */}
+      <header className="sticky top-0 z-30 border-b border-zinc-800/80 bg-zinc-950/90 px-4 py-2.5 backdrop-blur-md">
         <div className="mx-auto flex max-w-md items-center justify-between">
-          <h1 className="text-base font-semibold tracking-tight text-zinc-100">Painel Pessoal</h1>
-          <span className="rounded-full bg-zinc-800 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-            {activeTab === 'today' && 'Hoje'}
-            {activeTab === 'tasks' && 'Tarefas'}
-            {activeTab === 'fronts' && 'Frentes'}
-            {activeTab === 'ideas' && 'Ideias'}
-            {activeTab === 'people' && 'Contatos'}
-          </span>
+          <div className="flex items-center gap-2">
+            <h1 className="text-base font-semibold tracking-tight text-zinc-100">Painel Pessoal</h1>
+            <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+              {activeTab === 'today' && 'Hoje'}
+              {activeTab === 'tasks' && 'Tarefas'}
+              {activeTab === 'fronts' && 'Frentes'}
+              {activeTab === 'ideas' && 'Ideias'}
+              {activeTab === 'people' && 'Contatos'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleExportData}
+              title="Exportar Backup"
+              className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 active:scale-95"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Exportar</span>
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              title="Restaurar Backup"
+              className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 active:scale-95"
+            >
+              <Upload className="h-3.5 w-3.5" />
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleImportData}
+              accept=".json"
+              className="hidden"
+            />
+          </div>
         </div>
       </header>
 
-      {/* Conteúdo Central Variável de acordo com a Aba */}
+      {/* Conteúdo Central */}
       <main className="flex-1 px-4 py-4 max-w-md mx-auto w-full pb-28">
         
         {/* ================= ABA HOJE ================= */}
@@ -161,13 +253,13 @@ export default function App() {
                 <Clock className="h-4 w-4 text-emerald-400" />
                 Foco do Dia
               </div>
-              <p className="mt-1 text-xs text-zinc-500">Tarefas agendadas para hoje ou pendentes prioritárias.</p>
+              <p className="mt-1 text-xs text-zinc-500">Tarefas prioritárias e agendadas para hoje ({todayStr}).</p>
             </div>
 
             <div className="flex flex-col gap-2">
               {tasks.filter(t => t.dueDate === todayStr || (!t.dueDate && !t.completed)).length === 0 ? (
                 <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">
-                  Tudo limpo para hoje! Nenhuma pendência imediata.
+                  Nenhuma pendência prioritária para hoje.
                 </div>
               ) : (
                 tasks
@@ -175,22 +267,27 @@ export default function App() {
                   .map(task => (
                     <div
                       key={task.id}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3.5"
+                      className="flex flex-col rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3.5 gap-1.5"
                     >
-                      <button
-                        type="button"
-                        onClick={() => handleToggleTask(task)}
-                        className="flex flex-1 items-center gap-3 text-left overflow-hidden"
-                      >
-                        {task.completed ? (
-                          <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
-                        ) : (
-                          <Circle className="h-5 w-5 text-zinc-600 shrink-0" />
-                        )}
-                        <span className={`text-sm truncate ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>
-                          {task.title}
-                        </span>
-                      </button>
+                      <div className="flex items-center justify-between gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleTask(task)}
+                          className="flex flex-1 items-center gap-3 text-left overflow-hidden"
+                        >
+                          {task.completed ? (
+                            <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
+                          ) : (
+                            <Circle className="h-5 w-5 text-zinc-600 shrink-0" />
+                          )}
+                          <span className={`text-sm truncate ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>
+                            {task.title}
+                          </span>
+                        </button>
+                      </div>
+                      {task.notes && (
+                        <p className="pl-8 text-xs text-zinc-400 whitespace-pre-wrap">{task.notes}</p>
+                      )}
                     </div>
                   ))
               )}
@@ -202,15 +299,37 @@ export default function App() {
         {activeTab === 'tasks' && (
           <div className="flex flex-col gap-5">
             <section className="rounded-2xl border border-zinc-800/80 bg-zinc-900/50 p-4">
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">Nova Tarefa</h2>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Nova Tarefa</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowNotesField(!showNotesField)}
+                  className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200 transition"
+                >
+                  <AlignLeft className="h-3.5 w-3.5" />
+                  {showNotesField ? 'Ocultar Nota' : '+ Adicionar Detalhes'}
+                  {showNotesField ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+
               <form onSubmit={handleAddTask} className="flex flex-col gap-3">
                 <input
                   type="text"
-                  placeholder="O que precisa ser feito?"
+                  placeholder="Nome da tarefa..."
                   value={taskTitle}
                   onChange={(e) => setTaskTitle(e.target.value)}
                   className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
                 />
+
+                {showNotesField && (
+                  <textarea
+                    placeholder="Anotações detalhadas, links, observações..."
+                    rows={3}
+                    value={taskNotes}
+                    onChange={(e) => setTaskNotes(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400 resize-none"
+                  />
+                )}
                 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="flex flex-col gap-1">
@@ -264,48 +383,56 @@ export default function App() {
                   return (
                     <div
                       key={task.id}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3.5 transition"
+                      className="flex flex-col gap-2 rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3.5 transition"
                     >
-                      <button
-                        type="button"
-                        onClick={() => handleToggleTask(task)}
-                        className="flex flex-1 items-center gap-3 text-left overflow-hidden"
-                      >
-                        {task.completed ? (
-                          <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
-                        ) : (
-                          <Circle className="h-5 w-5 text-zinc-600 shrink-0" />
-                        )}
-                        <div className="flex flex-col min-w-0">
-                          <span className={`text-sm truncate ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>
-                            {task.title}
-                          </span>
-                          <div className="flex items-center gap-2 text-[11px] text-zinc-400 mt-0.5">
-                            {task.dueDate && (
-                              <span className="flex items-center gap-1">
-                                <Calendar className="h-3 w-3" />
-                                {task.dueDate}
-                              </span>
-                            )}
-                            {front && (
-                              <span 
-                                className="px-1.5 py-0.2 rounded text-[10px] font-medium"
-                                style={{ backgroundColor: `${front.color}22`, color: front.color }}
-                              >
-                                {front.name}
-                              </span>
-                            )}
+                      <div className="flex items-center justify-between gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleTask(task)}
+                          className="flex flex-1 items-center gap-3 text-left overflow-hidden"
+                        >
+                          {task.completed ? (
+                            <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
+                          ) : (
+                            <Circle className="h-5 w-5 text-zinc-600 shrink-0" />
+                          )}
+                          <div className="flex flex-col min-w-0">
+                            <span className={`text-sm truncate ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>
+                              {task.title}
+                            </span>
+                            <div className="flex items-center gap-2 text-[11px] text-zinc-400 mt-0.5">
+                              {task.dueDate && (
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {task.dueDate}
+                                </span>
+                              )}
+                              {front && (
+                                <span 
+                                  className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+                                  style={{ backgroundColor: `${front.color}22`, color: front.color }}
+                                >
+                                  {front.name}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      </button>
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteTask(task.id)}
-                        className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTask(task.id)}
+                          className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      {task.notes && (
+                        <div className="pl-8 pt-1 border-t border-zinc-800/50">
+                          <p className="text-xs text-zinc-400 whitespace-pre-wrap">{task.notes}</p>
+                        </div>
+                      )}
                     </div>
                   );
                 })
