@@ -1,143 +1,199 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Plus, Search } from 'lucide-react';
-import { db } from './db/dexie';
-import type { Front, Person, Task } from './core/types';
-import { DEFAULT_SETTINGS } from './core/types';
-import { compileTodayBriefing } from './core/logic/today-triage';
-import { BottomNav } from './components/layout/BottomNav';
-import type { TabType } from './components/layout/BottomNav';
-import { QuickCaptureModal } from './components/quick-capture/QuickCaptureModal';
-import { TodayView } from './components/today/TodayView';
-import { TaskDetailDrawer } from './components/tasks/TaskDetailDrawer';
-import { FrontsView } from './components/fronts/FrontsView';
-import { PeopleView } from './components/people/PeopleView';
-import { TasksView } from './components/tasks/TasksView';
-import { IdeasView } from './components/ideas/IdeasView';
-import { SearchModal } from './components/search/SearchModal';
+import { db, type Task } from './core/db/schema';
+import { 
+  CheckCircle2, 
+  Circle, 
+  Calendar, 
+  Plus, 
+  Trash2, 
+  FolderKanban, 
+  Lightbulb, 
+  Users, 
+  CheckSquare 
+} from 'lucide-react';
 
-export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabType>('today');
-  const [isCaptureOpen, setIsCaptureOpen] = useState(false);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+export default function App() {
+  const [activeTab, setActiveTab] = useState<'today' | 'tasks' | 'fronts' | 'ideas' | 'people'>('tasks');
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDate, setNewTaskDate] = useState('');
 
-  const tasks = useLiveQuery(() => db.tasks.toArray()) || [];
-  const fronts = useLiveQuery(() => db.fronts.toArray()) || [];
-  const people = useLiveQuery(() => db.people.toArray()) || [];
-  const ideas = useLiveQuery(() => db.ideas.toArray()) || [];
-  const settingsList = useLiveQuery(() => db.settings.toArray()) || [];
+  const tasks = useLiveQuery(() => db.tasks.toArray()) ?? [];
 
-  const settings = settingsList[0] || DEFAULT_SETTINGS;
+  const handleAddTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTaskTitle.trim()) return;
 
-  const frontsMap = new Map<string, Front>(fronts.map((f) => [f.id, f]));
-  const peopleMap = new Map<string, Person>(people.map((p) => [p.id, p]));
+    await db.tasks.add({
+      title: newTaskTitle.trim(),
+      completed: false,
+      dueDate: newTaskDate || undefined,
+      createdAt: new Date().toISOString(),
+    });
 
-  const briefing = compileTodayBriefing(tasks, settings);
+    setNewTaskTitle('');
+    setNewTaskDate('');
+  };
 
-  // Atalho de teclado: Cmd+K / Ctrl+K abre a busca
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setIsSearchOpen((prev) => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  const handleCompleteTask = async (taskId: string) => {
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task) return;
-    const now = new Date().toISOString();
-    await db.tasks.update(taskId, {
-      status: 'COMPLETED',
-      completedAt: now,
-      updatedAt: now,
-      lastMeaningfulMovementAt: now,
+  const handleToggleTask = async (task: Task) => {
+    if (!task.id) return;
+    await db.tasks.update(task.id, {
+      completed: !task.completed,
     });
   };
 
+  const handleDeleteTask = async (id?: number) => {
+    if (!id) return;
+    await db.tasks.delete(id);
+  };
+
   return (
-    <div className="min-h-screen bg-[#0d0e12] text-slate-100 flex flex-col font-sans">
-      {/* Top Header com Botão de Busca */}
-      <header className="px-4 py-3 border-b border-[#1f2330] flex items-center justify-between max-w-md mx-auto w-full">
-        <span className="text-xs font-semibold tracking-wider text-slate-400 uppercase">
-          Painel Pessoal
-        </span>
-        <button
-          onClick={() => setIsSearchOpen(true)}
-          className="flex items-center gap-2 bg-[#171a23] hover:bg-[#202432] text-slate-400 hover:text-slate-200 border border-[#262b3a] px-3 py-1.5 rounded-xl text-xs transition-colors"
-        >
-          <Search className="w-3.5 h-3.5" />
-          <span>Buscar...</span>
-          <kbd className="text-[10px] bg-[#101217] px-1.5 py-0.5 rounded border border-[#262b3a] text-slate-500">
-            ⌘K
-          </kbd>
-        </button>
+    <div className="flex flex-col min-h-screen bg-zinc-950 text-zinc-100">
+      {/* Top Header */}
+      <header className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/80 px-4 py-3 backdrop-blur-md">
+        <div className="mx-auto flex max-w-md items-center justify-between">
+          <h1 className="text-base font-semibold tracking-tight text-zinc-100">Painel Pessoal</h1>
+          <span className="text-xs font-medium text-zinc-500">Local-First</span>
+        </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto">
-        {activeTab === 'today' && (
-          <TodayView
-            briefing={briefing}
-            frontsMap={frontsMap}
-            peopleMap={peopleMap}
-            settings={settings}
-            onCompleteTask={handleCompleteTask}
-            onSelectTask={(task) => setSelectedTask(task)}
-          />
-        )}
+      {/* Main Content Area */}
+      <main className="flex-1 px-4 py-4 max-w-md mx-auto w-full pb-24">
+        {/* Formulário de Adição Rápida de Tarefa */}
+        <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 shadow-sm">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">Nova Tarefa</h2>
+          <form onSubmit={handleAddTask} className="flex flex-col gap-3">
+            <input
+              type="text"
+              placeholder="O que precisa ser feito?"
+              value={newTaskTitle}
+              onChange={(e) => setNewTaskTitle(e.target.value)}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none transition focus:border-zinc-500"
+            />
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  type="date"
+                  value={newTaskDate}
+                  onChange={(e) => setNewTaskDate(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-zinc-500 [color-scheme:dark]"
+                />
+              </div>
+              <button
+                type="submit"
+                className="flex items-center justify-center gap-1.5 rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-zinc-200 active:scale-95"
+              >
+                <Plus className="h-4 w-4" />
+                Adicionar
+              </button>
+            </div>
+          </form>
+        </section>
 
-        {activeTab === 'fronts' && <FrontsView fronts={fronts} />}
+        {/* Lista de Tarefas */}
+        <section>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Tarefas Cadastradas</h2>
+            <span className="text-xs text-zinc-500">{tasks.length} total</span>
+          </div>
 
-        {activeTab === 'tasks' && (
-          <TasksView
-            tasks={tasks}
-            frontsMap={frontsMap}
-            onSelectTask={(task) => setSelectedTask(task)}
-          />
-        )}
+          <div className="flex flex-col gap-2">
+            {tasks.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">
+                Nenhuma tarefa pendente.
+              </div>
+            ) : (
+              tasks.map((task) => (
+                <div
+                  key={task.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 transition hover:border-zinc-700"
+                >
+                  <button
+                    onClick={() => handleToggleTask(task)}
+                    className="flex flex-1 items-center gap-3 text-left"
+                  >
+                    {task.completed ? (
+                      <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
+                    ) : (
+                      <Circle className="h-5 w-5 text-zinc-600 shrink-0" />
+                    )}
+                    <div className="flex flex-col">
+                      <span className={`text-sm font-medium ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>
+                        {task.title}
+                      </span>
+                      {task.dueDate && (
+                        <div className="flex items-center gap-1 text-xs text-zinc-400 mt-0.5">
+                          <Calendar className="h-3 w-3" />
+                          <span>{task.dueDate}</span>
+                        </div>
+                      )}
+                    </div>
+                  </button>
 
-        {activeTab === 'ideas' && <IdeasView ideas={ideas} frontsMap={frontsMap} />}
-
-        {activeTab === 'people' && <PeopleView people={people} />}
+                  <button
+                    onClick={() => handleDeleteTask(task.id)}
+                    className="rounded-md p-1 text-zinc-500 transition hover:bg-zinc-800 hover:text-rose-400"
+                    title="Excluir tarefa"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
       </main>
 
-      {/* Botão Flutuante de Captura Rápida */}
-      <button
-        onClick={() => setIsCaptureOpen(true)}
-        className="fixed bottom-20 right-5 w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shadow-lg shadow-blue-600/30 transition-transform active:scale-95 z-30"
-      >
-        <Plus className="w-6 h-6" />
-      </button>
-
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
-
-      <QuickCaptureModal
-        isOpen={isCaptureOpen}
-        onClose={() => setIsCaptureOpen(false)}
-        fronts={fronts}
-      />
-
-      <TaskDetailDrawer
-        task={selectedTask}
-        onClose={() => setSelectedTask(null)}
-        frontsMap={frontsMap}
-        people={people}
-      />
-
-      <SearchModal
-        isOpen={isSearchOpen}
-        onClose={() => setIsSearchOpen(false)}
-        tasks={tasks}
-        ideas={ideas}
-        frontsMap={frontsMap}
-        onSelectTask={(task) => setSelectedTask(task)}
-      />
+      {/* Bottom Navigation (Mobile Bar) */}
+      <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-zinc-800 bg-zinc-950/90 px-4 py-2 backdrop-blur-lg">
+        <div className="mx-auto flex max-w-md items-center justify-between">
+          <button
+            onClick={() => setActiveTab('today')}
+            className={`flex flex-col items-center gap-1 py-1 px-2 text-[10px] font-medium transition ${
+              activeTab === 'today' ? 'text-zinc-100' : 'text-zinc-500'
+            }`}
+          >
+            <Calendar className="h-5 w-5" />
+            Hoje
+          </button>
+          <button
+            onClick={() => setActiveTab('tasks')}
+            className={`flex flex-col items-center gap-1 py-1 px-2 text-[10px] font-medium transition ${
+              activeTab === 'tasks' ? 'text-zinc-100' : 'text-zinc-500'
+            }`}
+          >
+            <CheckSquare className="h-5 w-5" />
+            Tarefas
+          </button>
+          <button
+            onClick={() => setActiveTab('fronts')}
+            className={`flex flex-col items-center gap-1 py-1 px-2 text-[10px] font-medium transition ${
+              activeTab === 'fronts' ? 'text-zinc-100' : 'text-zinc-500'
+            }`}
+          >
+            <FolderKanban className="h-5 w-5" />
+            Frentes
+          </button>
+          <button
+            onClick={() => setActiveTab('ideas')}
+            className={`flex flex-col items-center gap-1 py-1 px-2 text-[10px] font-medium transition ${
+              activeTab === 'ideas' ? 'text-zinc-100' : 'text-zinc-500'
+            }`}
+          >
+            <Lightbulb className="h-5 w-5" />
+            Ideias
+          </button>
+          <button
+            onClick={() => setActiveTab('people')}
+            className={`flex flex-col items-center gap-1 py-1 px-2 text-[10px] font-medium transition ${
+              activeTab === 'people' ? 'text-zinc-100' : 'text-zinc-500'
+            }`}
+          >
+            <Users className="h-5 w-5" />
+            Contatos
+          </button>
+        </div>
+      </nav>
     </div>
   );
-};
-
-export default App;
+}
