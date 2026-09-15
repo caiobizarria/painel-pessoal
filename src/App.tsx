@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Task } from './core/db/schema';
+import { db, type Task, type Front, type Idea, type Contact } from './core/db/schema';
 import { 
   CheckCircle2, 
   Circle, 
@@ -14,12 +14,31 @@ import {
   Clock,
   Download,
   Upload,
-  X
+  X,
+  Search,
+  Edit3,
+  FastForward,
+  AlertCircle
 } from 'lucide-react';
+
+// Função utilitária para adicionar dias a uma data (YYYY-MM-DD)
+function addDaysToDate(baseDateStr: string | undefined, daysToAdd: number): string {
+  const base = baseDateStr ? new Date(`${baseDateStr}T12:00:00`) : new Date();
+  base.setDate(base.getDate() + daysToAdd);
+  return base.toISOString().split('T')[0];
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'today' | 'tasks' | 'fronts' | 'ideas' | 'people'>('today');
+  
+  // Modais de Criação / Edição
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [editingFrontId, setEditingFrontId] = useState<number | null>(null);
+
+  // Busca e Filtros
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFrontFilter, setSelectedFrontFilter] = useState<number | 'all'>('all');
 
   // Formulário Tarefa
   const [taskTitle, setTaskTitle] = useState('');
@@ -53,15 +72,13 @@ export default function App() {
   useEffect(() => {
     const seedLegacyData = async () => {
       const existingTasksCount = await db.tasks.count();
-      if (existingTasksCount > 0) return; // Só popula se o banco estiver vazio
+      if (existingTasksCount > 0) return;
 
-      // 1. Criar Frentes
       const fCidadeId = await db.fronts.add({ name: '🎸 Cidade Dormitório', color: '#ec4899' }) as number;
       const fPetraId = await db.fronts.add({ name: 'Petra', color: '#3b82f6' }) as number;
       const fAirbnbId = await db.fronts.add({ name: '🏡 Airbnb', color: '#10b981' }) as number;
       const fPessoalId = await db.fronts.add({ name: 'Pessoal', color: '#f59e0b' }) as number;
 
-      // 2. Lista de Atividades
       const legacyItems: Array<{ title: string; frontId?: number; dueDate?: string }> = [
         { title: 'Hospedagem bananada recibo', frontId: fCidadeId, dueDate: '2026-09-01' },
         { title: 'Falar com Rodolfo e clovis leads', frontId: fPetraId, dueDate: '2026-09-01' },
@@ -116,82 +133,102 @@ export default function App() {
     seedLegacyData();
   }, []);
 
-  const handleOpenModal = () => {
-    if (activeTab === 'today') {
-      setTaskDate(todayStr);
-    }
+  // Abrir Modal para Criar
+  const handleOpenCreateModal = () => {
+    setEditingTaskId(null);
+    setEditingFrontId(null);
+    setTaskTitle('');
+    setTaskNotes('');
+    setTaskDate(activeTab === 'today' ? todayStr : '');
+    setTaskFrontId('');
+    setFrontName('');
+    setFrontColor('#3b82f6');
+    setIdeaTitle('');
+    setIdeaContent('');
+    setContactName('');
+    setContactRole('');
+    setContactNotes('');
     setIsModalOpen(true);
   };
 
-  const handleExportData = async () => {
-    try {
-      const exportData = {
-        version: 2,
-        exportedAt: new Date().toISOString(),
-        tasks: await db.tasks.toArray(),
-        fronts: await db.fronts.toArray(),
-        ideas: await db.ideas.toArray(),
-        contacts: await db.contacts.toArray(),
-      };
-
-      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(exportData, null, 2));
-      const downloadAnchor = document.createElement('a');
-      downloadAnchor.setAttribute('href', dataStr);
-      downloadAnchor.setAttribute('download', `backup-painel-${todayStr}.json`);
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-    } catch {
-      alert('Falha ao gerar backup.');
-    }
+  // Abrir Modal para Editar Tarefa
+  const handleEditTask = (task: Task) => {
+    if (!task.id) return;
+    setEditingTaskId(task.id);
+    setTaskTitle(task.title);
+    setTaskNotes(task.notes || '');
+    setTaskDate(task.dueDate || '');
+    setTaskFrontId(task.frontId ? String(task.frontId) : '');
+    setIsModalOpen(true);
   };
 
-  const handleImportData = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const json = JSON.parse(event.target?.result as string);
-        if (confirm('Deseja restaurar este backup? Dados existentes serão preservados.')) {
-          if (json.tasks?.length) await db.tasks.bulkPut(json.tasks);
-          if (json.fronts?.length) await db.fronts.bulkPut(json.fronts);
-          if (json.ideas?.length) await db.ideas.bulkPut(json.ideas);
-          if (json.contacts?.length) await db.contacts.bulkPut(json.contacts);
-          alert('Dados sincronizados com sucesso!');
-        }
-      } catch {
-        alert('Arquivo de backup inválido.');
-      }
-    };
-    reader.readAsText(file);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+  // Adiar/Prorrogar Validade (+1, +3 ou +5 dias)
+  const handleSnoozeTask = async (e: React.MouseEvent, task: Task, days: number) => {
+    e.stopPropagation();
+    if (!task.id) return;
+    // Se a tarefa já está atrasada ou sem data, conta a partir de hoje; senão, soma ao prazo atual
+    const baseDate = (task.dueDate && task.dueDate >= todayStr) ? task.dueDate : todayStr;
+    const newDueDate = addDaysToDate(baseDate, days);
+    
+    await db.tasks.update(task.id, {
+      dueDate: newDueDate,
+      completed: false
+    });
   };
 
+  // Abrir Modal para Editar Frente
+  const handleEditFront = (front: Front) => {
+    if (!front.id) return;
+    setEditingFrontId(front.id);
+    setFrontName(front.name);
+    setFrontColor(front.color);
+    setIsModalOpen(true);
+  };
+
+  // Salvar (Criação ou Edição)
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (activeTab === 'today' || activeTab === 'tasks') {
       if (!taskTitle.trim()) return;
 
-      await db.tasks.add({
-        title: taskTitle.trim(),
-        notes: taskNotes.trim() || undefined,
-        completed: false,
-        dueDate: taskDate || undefined,
-        frontId: taskFrontId ? Number(taskFrontId) : undefined,
-        createdAt: new Date().toISOString(),
-      });
+      if (editingTaskId) {
+        await db.tasks.update(editingTaskId, {
+          title: taskTitle.trim(),
+          notes: taskNotes.trim() || undefined,
+          dueDate: taskDate || undefined,
+          frontId: taskFrontId ? Number(taskFrontId) : undefined,
+        });
+      } else {
+        await db.tasks.add({
+          title: taskTitle.trim(),
+          notes: taskNotes.trim() || undefined,
+          completed: false,
+          dueDate: taskDate || undefined,
+          frontId: taskFrontId ? Number(taskFrontId) : undefined,
+          createdAt: new Date().toISOString(),
+        });
+      }
 
       setTaskTitle('');
       setTaskNotes('');
       setTaskDate('');
       setTaskFrontId('');
+      setEditingTaskId(null);
     } else if (activeTab === 'fronts') {
       if (!frontName.trim()) return;
-      await db.fronts.add({ name: frontName.trim(), color: frontColor });
+
+      if (editingFrontId) {
+        await db.fronts.update(editingFrontId, {
+          name: frontName.trim(),
+          color: frontColor,
+        });
+      } else {
+        await db.fronts.add({ name: frontName.trim(), color: frontColor });
+      }
+
       setFrontName('');
+      setEditingFrontId(null);
     } else if (activeTab === 'ideas') {
       if (!ideaTitle.trim()) return;
       await db.ideas.add({
@@ -217,21 +254,197 @@ export default function App() {
     setIsModalOpen(false);
   };
 
-  const handleToggleTask = async (task: Task) => {
+  const handleToggleTask = async (e: React.MouseEvent, task: Task) => {
+    e.stopPropagation();
     if (!task.id) return;
     await db.tasks.update(task.id, { completed: !task.completed });
   };
 
-  const handleDeleteTask = async (id?: number) => {
+  const handleDeleteTask = async (e: React.MouseEvent, id?: number) => {
+    e.stopPropagation();
     if (!id) return;
     await db.tasks.delete(id);
   };
 
-  const todayTasks = tasks.filter(t => t.dueDate === todayStr || (!t.dueDate && !t.completed));
+  // Exportar Backup
+  const handleExportData = async () => {
+    try {
+      const exportData = {
+        version: 2,
+        exportedAt: new Date().toISOString(),
+        tasks: await db.tasks.toArray(),
+        fronts: await db.fronts.toArray(),
+        ideas: await db.ideas.toArray(),
+        contacts: await db.contacts.toArray(),
+      };
+
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(exportData, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute('href', dataStr);
+      downloadAnchor.setAttribute('download', `backup-painel-${todayStr}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    } catch {
+      alert('Falha ao gerar backup.');
+    }
+  };
+
+  // Importar Backup
+  const handleImportData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        if (confirm('Deseja restaurar este backup? Dados existentes serão preservados.')) {
+          if (json.tasks?.length) await db.tasks.bulkPut(json.tasks);
+          if (json.fronts?.length) await db.fronts.bulkPut(json.fronts);
+          if (json.ideas?.length) await db.ideas.bulkPut(json.ideas);
+          if (json.contacts?.length) await db.contacts.bulkPut(json.contacts);
+          alert('Dados sincronizados com sucesso!');
+        }
+      } catch {
+        alert('Arquivo de backup inválido.');
+      }
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // Filtros Reativos
+  const filterTaskList = (list: Task[]) => {
+    return list.filter((task) => {
+      const matchesSearch = 
+        task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (task.notes && task.notes.toLowerCase().includes(searchQuery.toLowerCase()));
+      
+      const matchesFront = 
+        selectedFrontFilter === 'all' || task.frontId === selectedFrontFilter;
+
+      return matchesSearch && matchesFront;
+    });
+  };
+
+  // Na aba Hoje entram as tarefas de hoje, as atrasadas (dueDate < hoje) e as sem data pendentes
+  const todayBaseTasks = tasks.filter(t => (t.dueDate && t.dueDate <= todayStr && !t.completed) || (!t.dueDate && !t.completed));
+  const filteredTodayTasks = filterTaskList(todayBaseTasks);
+  const filteredAllTasks = filterTaskList(tasks);
+
+  // Renderizador de Card de Tarefa com Validade e Snooze Rápido
+  const renderTaskCard = (task: Task) => {
+    const front = fronts.find(f => f.id === task.frontId);
+    const isOverdue = task.dueDate && task.dueDate < todayStr && !task.completed;
+    const isDueToday = task.dueDate === todayStr && !task.completed;
+
+    return (
+      <div
+        key={task.id}
+        onClick={() => handleEditTask(task)}
+        className="cursor-pointer flex flex-col gap-2 rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-3.5 transition active:bg-zinc-900/60 hover:border-zinc-700"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-1 items-start gap-3 overflow-hidden">
+            <button
+              type="button"
+              onClick={(e) => handleToggleTask(e, task)}
+              className="shrink-0 pt-0.5"
+            >
+              {task.completed ? (
+                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              ) : (
+                <Circle className="h-5 w-5 text-zinc-600" />
+              )}
+            </button>
+            <div className="flex flex-col min-w-0">
+              <span className={`text-sm leading-snug break-words ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>
+                {task.title}
+              </span>
+              
+              {/* Badges de Validade, Frente e Prazo */}
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] mt-1">
+                {task.dueDate && (
+                  <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded font-medium ${
+                    isOverdue 
+                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' 
+                      : isDueToday 
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' 
+                      : 'text-zinc-400'
+                  }`}>
+                    {isOverdue && <AlertCircle className="h-3 w-3 text-rose-400" />}
+                    <Calendar className="h-3 w-3" />
+                    <span>{task.dueDate}</span>
+                    {isOverdue && <span className="font-bold">Atrasada</span>}
+                    {isDueToday && <span className="font-bold">Hoje</span>}
+                  </span>
+                )}
+                {front && (
+                  <span 
+                    className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+                    style={{ backgroundColor: `${front.color}22`, color: front.color }}
+                  >
+                    {front.name}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Botões de Ação Direta (+1, +3, +5 e Excluir) */}
+          <div className="flex items-center gap-1 shrink-0">
+            {!task.completed && (
+              <div className="flex items-center gap-0.5 bg-zinc-950/70 border border-zinc-800 rounded-lg p-0.5">
+                <button
+                  type="button"
+                  title="Cobrar / Adiar +1 dia"
+                  onClick={(e) => handleSnoozeTask(e, task, 1)}
+                  className="px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded transition"
+                >
+                  +1d
+                </button>
+                <button
+                  type="button"
+                  title="Cobrar / Adiar +3 dias"
+                  onClick={(e) => handleSnoozeTask(e, task, 3)}
+                  className="px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded transition"
+                >
+                  +3d
+                </button>
+                <button
+                  type="button"
+                  title="Cobrar / Adiar +5 dias"
+                  onClick={(e) => handleSnoozeTask(e, task, 5)}
+                  className="px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded transition"
+                >
+                  +5d
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={(e) => handleDeleteTask(e, task.id)}
+              className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
+              title="Excluir"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {task.notes && (
+          <div className="pl-8 pt-1 border-t border-zinc-800/30">
+            <p className="text-xs text-zinc-400 whitespace-pre-wrap leading-relaxed">{task.notes}</p>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col min-h-screen bg-zinc-950 text-zinc-100 font-sans">
-      {/* Top Header */}
+      {/* Header com Safe Area */}
       <header className="sticky top-0 z-20 border-b border-zinc-800/80 bg-zinc-950/95 backdrop-blur-md pt-safe px-4 pb-3">
         <div className="mx-auto flex max-w-md items-center justify-between">
           <div className="flex items-center gap-2">
@@ -270,171 +483,118 @@ export default function App() {
             />
           </div>
         </div>
+
+        {/* Lupa e Carrossel de Frentes */}
+        {(activeTab === 'today' || activeTab === 'tasks') && (
+          <div className="mx-auto max-w-md mt-3 flex flex-col gap-2">
+            <div className="relative flex items-center">
+              <Search className="absolute left-3 h-4 w-4 text-zinc-500" />
+              <input
+                type="text"
+                placeholder="Buscar tarefas ou anotações..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-xl border border-zinc-800 bg-zinc-900/90 pl-9 pr-8 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-500"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 p-0.5 text-zinc-500 hover:text-zinc-300"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setSelectedFrontFilter('all')}
+                className={`whitespace-nowrap px-2.5 py-1 rounded-lg font-medium text-[11px] transition ${
+                  selectedFrontFilter === 'all'
+                    ? 'bg-zinc-100 text-zinc-950 font-semibold'
+                    : 'bg-zinc-900 text-zinc-400 border border-zinc-800/80 hover:bg-zinc-800'
+                }`}
+              >
+                Todas
+              </button>
+              {fronts.map((front) => {
+                const isSelected = selectedFrontFilter === front.id;
+                return (
+                  <button
+                    key={front.id}
+                    type="button"
+                    onClick={() => setSelectedFrontFilter(isSelected ? 'all' : (front.id as number))}
+                    className={`whitespace-nowrap px-2.5 py-1 rounded-lg text-[11px] transition border flex items-center gap-1.5 ${
+                      isSelected
+                        ? 'border-transparent font-semibold text-zinc-950'
+                        : 'border-zinc-800/80 bg-zinc-900 text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                    style={{
+                      backgroundColor: isSelected ? front.color : undefined,
+                    }}
+                  >
+                    {!isSelected && (
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: front.color }} />
+                    )}
+                    <span>{front.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </header>
 
-      {/* Conteúdo Central */}
+      {/* Conteúdo Principal */}
       <main className="flex-1 px-4 py-4 max-w-md mx-auto w-full pb-28">
         
-        {/* ================= ABA HOJE ================= */}
+        {/* ABA HOJE */}
         {activeTab === 'today' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
               <span className="flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5 text-emerald-400" />
-                Foco de Hoje
+                Foco do Dia & Validades
               </span>
-              <span className="text-zinc-500">{todayTasks.length} pendentes</span>
+              <span className="text-zinc-500">{filteredTodayTasks.length} itens</span>
             </div>
 
-            {todayTasks.length === 0 ? (
+            {filteredTodayTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center">
                 <p className="text-sm font-medium text-zinc-400">Tudo em dia para hoje</p>
-                <p className="text-xs text-zinc-600 mt-1">Toque no "+" para registrar uma nova tarefa.</p>
+                <p className="text-xs text-zinc-600 mt-1">Toque no "+" para registrar ou adiar prazos.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                {todayTasks.map(task => {
-                  const front = fronts.find(f => f.id === task.frontId);
-                  return (
-                    <div
-                      key={task.id}
-                      className="flex flex-col gap-1.5 rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-3.5 transition active:bg-zinc-900/60"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleTask(task)}
-                          className="flex flex-1 items-center gap-3 text-left overflow-hidden"
-                        >
-                          {task.completed ? (
-                            <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
-                          ) : (
-                            <Circle className="h-5 w-5 text-zinc-600 shrink-0" />
-                          )}
-                          <div className="flex flex-col min-w-0">
-                            <span className={`text-sm truncate ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>
-                              {task.title}
-                            </span>
-                            <div className="flex items-center gap-2 text-[11px] text-zinc-400 mt-0.5">
-                              {task.dueDate && (
-                                <span className="flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" />
-                                  {task.dueDate}
-                                </span>
-                              )}
-                              {front && (
-                                <span 
-                                  className="w-fit px-1.5 py-0.2 rounded text-[10px] font-medium"
-                                  style={{ backgroundColor: `${front.color}22`, color: front.color }}
-                                >
-                                  {front.name}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteTask(task.id)}
-                          className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-
-                      {task.notes && (
-                        <div className="pl-8 pt-1 border-t border-zinc-800/30">
-                          <p className="text-xs text-zinc-400 whitespace-pre-wrap leading-relaxed">{task.notes}</p>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                {filteredTodayTasks.map(renderTaskCard)}
               </div>
             )}
           </div>
         )}
 
-        {/* ================= ABA TAREFAS ================= */}
+        {/* ABA TAREFAS */}
         {activeTab === 'tasks' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
               <span>Todas as Tarefas</span>
-              <span className="text-zinc-500">{tasks.length} total</span>
+              <span className="text-zinc-500">{filteredAllTasks.length} de {tasks.length}</span>
             </div>
 
-            {tasks.length === 0 ? (
+            {filteredAllTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center">
-                <p className="text-sm font-medium text-zinc-400">Nenhuma tarefa cadastrada</p>
-                <p className="text-xs text-zinc-600 mt-1">Toque no "+" para registrar.</p>
+                <p className="text-sm font-medium text-zinc-400">Nenhuma tarefa encontrada</p>
+                <p className="text-xs text-zinc-600 mt-1">Altere o filtro ou adicione uma nova.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                {tasks.map((task) => {
-                  const front = fronts.find(f => f.id === task.frontId);
-                  return (
-                    <div
-                      key={task.id}
-                      className="flex flex-col gap-1.5 rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-3.5 transition"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleTask(task)}
-                          className="flex flex-1 items-center gap-3 text-left overflow-hidden"
-                        >
-                          {task.completed ? (
-                            <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
-                          ) : (
-                            <Circle className="h-5 w-5 text-zinc-600 shrink-0" />
-                          )}
-                          <div className="flex flex-col min-w-0">
-                            <span className={`text-sm truncate ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>
-                              {task.title}
-                            </span>
-                            <div className="flex items-center gap-2 text-[11px] text-zinc-400 mt-0.5">
-                              {task.dueDate && (
-                                <span className="flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" />
-                                  {task.dueDate}
-                                </span>
-                              )}
-                              {front && (
-                                <span 
-                                  className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-                                  style={{ backgroundColor: `${front.color}22`, color: front.color }}
-                                >
-                                  {front.name}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteTask(task.id)}
-                          className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-
-                      {task.notes && (
-                        <div className="pl-8 pt-1 border-t border-zinc-800/30">
-                          <p className="text-xs text-zinc-400 whitespace-pre-wrap leading-relaxed">{task.notes}</p>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                {filteredAllTasks.map(renderTaskCard)}
               </div>
             )}
           </div>
         )}
 
-        {/* ================= ABA FRENTES ================= */}
+        {/* ABA FRENTES */}
         {activeTab === 'fronts' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
@@ -451,19 +611,32 @@ export default function App() {
                 {fronts.map((front) => (
                   <div
                     key={front.id}
-                    className="flex items-center justify-between rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-3.5"
+                    onClick={() => handleEditFront(front)}
+                    className="cursor-pointer flex items-center justify-between rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-3.5 hover:border-zinc-700 transition"
                   >
                     <div className="flex items-center gap-3">
-                      <span className="h-3 w-3 rounded-full" style={{ backgroundColor: front.color }} />
+                      <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: front.color }} />
                       <span className="text-sm font-medium text-zinc-200">{front.name}</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => front.id && db.fronts.delete(front.id)}
-                      className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleEditFront(front)}
+                        className="p-1.5 text-zinc-500 hover:text-zinc-200 transition"
+                      >
+                        <Edit3 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          front.id && db.fronts.delete(front.id);
+                        }}
+                        className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -471,7 +644,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= ABA IDEIAS ================= */}
+        {/* ABA IDEIAS */}
         {activeTab === 'ideas' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
@@ -510,7 +683,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= ABA CONTATOS ================= */}
+        {/* ABA CONTATOS */}
         {activeTab === 'people' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
@@ -554,30 +727,41 @@ export default function App() {
 
       </main>
 
-      {/* Botão Flutuante (+) Unificado */}
+      {/* Botão Flutuante (+) */}
       <button
         type="button"
-        onClick={handleOpenModal}
+        onClick={handleOpenCreateModal}
         className="fixed bottom-20 right-5 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 text-zinc-950 shadow-lg shadow-black/50 transition active:scale-90"
         title="Adicionar"
       >
         <Plus className="h-6 w-6 stroke-[2.5]" />
       </button>
 
-      {/* Gaveta Modal de Cadastro */}
+      {/* Modal / Gaveta */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm p-0">
+        <div 
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm p-0"
+          onClick={() => setIsModalOpen(false)}
+        >
           <div 
             className="w-full max-w-md rounded-t-3xl border-t border-zinc-800 bg-zinc-950 p-5 shadow-2xl pb-safe animate-in slide-in-from-bottom duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                {activeTab === 'today' && 'Adicionar ao Dia de Hoje'}
-                {activeTab === 'tasks' && 'Nova Tarefa'}
-                {activeTab === 'fronts' && 'Nova Frente'}
-                {activeTab === 'ideas' && 'Nova Ideia'}
-                {activeTab === 'people' && 'Novo Contato'}
+                {editingTaskId 
+                  ? 'Editar Tarefa'
+                  : editingFrontId 
+                  ? 'Editar Frente'
+                  : activeTab === 'today' 
+                  ? 'Adicionar ao Dia de Hoje'
+                  : activeTab === 'tasks' 
+                  ? 'Nova Tarefa'
+                  : activeTab === 'fronts' 
+                  ? 'Nova Frente'
+                  : activeTab === 'ideas' 
+                  ? 'Nova Ideia' 
+                  : 'Novo Contato'}
               </span>
               <button
                 type="button"
@@ -606,18 +790,43 @@ export default function App() {
                     onChange={(e) => setTaskNotes(e.target.value)}
                     className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-xs text-zinc-200 placeholder-zinc-500 outline-none focus:border-zinc-400 resize-none"
                   />
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] uppercase font-semibold text-zinc-500">Data</label>
+                  
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] uppercase font-semibold text-zinc-500">Validade / Prazo</label>
+                      {/* Botões Rápidos de Prazo no Modal */}
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setTaskDate(addDaysToDate(taskDate || todayStr, 1))}
+                          className="px-2 py-0.5 rounded bg-zinc-800 text-[10px] font-medium text-zinc-300 hover:bg-zinc-700"
+                        >
+                          +1 dia
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTaskDate(addDaysToDate(taskDate || todayStr, 3))}
+                          className="px-2 py-0.5 rounded bg-zinc-800 text-[10px] font-medium text-zinc-300 hover:bg-zinc-700"
+                        >
+                          +3 dias
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTaskDate(addDaysToDate(taskDate || todayStr, 5))}
+                          className="px-2 py-0.5 rounded bg-zinc-800 text-[10px] font-medium text-zinc-300 hover:bg-zinc-700"
+                        >
+                          +5 dias
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-2">
                       <input
                         type="date"
                         value={taskDate}
                         onChange={(e) => setTaskDate(e.target.value)}
                         className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-100 outline-none [color-scheme:dark]"
                       />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] uppercase font-semibold text-zinc-500">Frente</label>
                       <select
                         value={taskFrontId}
                         onChange={(e) => setTaskFrontId(e.target.value)}
@@ -697,7 +906,7 @@ export default function App() {
                     placeholder="Telefone ou anotações"
                     value={contactNotes}
                     onChange={(e) => setContactNotes(e.target.value)}
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
                   />
                 </>
               )}
@@ -706,7 +915,7 @@ export default function App() {
                 type="submit"
                 className="mt-2 w-full rounded-xl bg-zinc-100 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 active:scale-98"
               >
-                Salvar
+                {editingTaskId || editingFrontId ? 'Salvar Alterações' : 'Salvar'}
               </button>
             </form>
           </div>
