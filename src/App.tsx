@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Task, type Front, type Idea, type Contact } from './core/db/schema';
+import { db, type Task, type Front, type CriticalityLevel } from './core/db/schema';
 import { 
   CheckCircle2, 
   Circle, 
@@ -10,18 +10,17 @@ import {
   FolderKanban, 
   Lightbulb, 
   Users, 
-  CheckSquare,
-  Clock,
-  Download,
-  Upload,
-  X,
-  Search,
-  Edit3,
-  FastForward,
-  AlertCircle
+  CheckSquare, 
+  Clock, 
+  Download, 
+  Upload, 
+  X, 
+  Search, 
+  Edit3, 
+  AlertCircle,
+  Flame
 } from 'lucide-react';
 
-// Função utilitária para adicionar dias a uma data (YYYY-MM-DD)
 function addDaysToDate(baseDateStr: string | undefined, daysToAdd: number): string {
   const base = baseDateStr ? new Date(`${baseDateStr}T12:00:00`) : new Date();
   base.setDate(base.getDate() + daysToAdd);
@@ -39,12 +38,14 @@ export default function App() {
   // Busca e Filtros
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFrontFilter, setSelectedFrontFilter] = useState<number | 'all'>('all');
+  const [selectedCriticalityFilter, setSelectedCriticalityFilter] = useState<CriticalityLevel | 'all'>('all');
 
   // Formulário Tarefa
   const [taskTitle, setTaskTitle] = useState('');
   const [taskNotes, setTaskNotes] = useState('');
   const [taskDate, setTaskDate] = useState('');
   const [taskFrontId, setTaskFrontId] = useState<string>('');
+  const [taskCriticality, setTaskCriticality] = useState<CriticalityLevel>('media');
 
   // Formulário Frentes
   const [frontName, setFrontName] = useState('');
@@ -68,7 +69,7 @@ export default function App() {
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // --- Seed Automático de Atividades Legadas ---
+  // Seed Automático
   useEffect(() => {
     const seedLegacyData = async () => {
       const existingTasksCount = await db.tasks.count();
@@ -79,44 +80,44 @@ export default function App() {
       const fAirbnbId = await db.fronts.add({ name: '🏡 Airbnb', color: '#10b981' }) as number;
       const fPessoalId = await db.fronts.add({ name: 'Pessoal', color: '#f59e0b' }) as number;
 
-      const legacyItems: Array<{ title: string; frontId?: number; dueDate?: string }> = [
-        { title: 'Hospedagem bananada recibo', frontId: fCidadeId, dueDate: '2026-09-01' },
-        { title: 'Falar com Rodolfo e clovis leads', frontId: fPetraId, dueDate: '2026-09-01' },
-        { title: 'Acompanhar Meta', frontId: fCidadeId, dueDate: '2026-09-01' },
-        { title: 'Arrumar outdoor adezam', frontId: fPetraId, dueDate: '2026-09-01' },
-        { title: 'Portabilidade investimento XP', dueDate: '2026-09-01' },
-        { title: 'Casa natura dia 03', dueDate: '2026-09-03' },
-        { title: 'Aumento demanda airbnb', frontId: fAirbnbId, dueDate: '2026-09-06' },
-        { title: 'Finalizar edital', frontId: fCidadeId },
-        { title: 'Fazer mais folhetos Petra A4', frontId: fPetraId },
-        { title: 'Fazer app to do list' },
-        { title: 'Flavia - Projeto casas Petra', frontId: fPetraId },
-        { title: 'IBRESP' },
-        { title: 'Locais ação SJC', frontId: fPetraId },
-        { title: 'Pintura' },
-        { title: 'Arrumar maquete', frontId: fPetraId },
-        { title: 'Planilha orçamento salão' },
-        { title: 'Placa administrativo', frontId: fPetraId },
-        { title: 'Ajustar layout stand', frontId: fPetraId },
-        { title: 'Treinar teclado ou jam', frontId: fPessoalId },
-        { title: 'Levar urina 24h', frontId: fPessoalId },
-        { title: 'Enviar nota bigberg' },
-        { title: 'Melhorar app life logger - colocar alerta' },
-        { title: 'Basquete ou corrida ou acad', frontId: fPessoalId },
-        { title: 'Cobrar Joilson', frontId: fCidadeId },
-        { title: 'Feira', frontId: fPessoalId },
-        { title: 'Conta de luz Serasa', frontId: fPessoalId },
-        { title: 'Viagens' },
-        { title: 'Traking' },
-        { title: 'Aparecida viagem' },
-        { title: 'Corrida eu na montanha dia 27 de setembro', frontId: fPetraId, dueDate: '2026-09-27' },
-        { title: 'Calculo life logger', frontId: fPessoalId },
-        { title: 'Serassa', frontId: fPessoalId },
-        { title: 'Documentos creci', frontId: fPessoalId },
-        { title: 'Folhetos construvale/blacknovember', frontId: fPetraId },
-        { title: 'Book construvale/stand 10 unid' },
-        { title: 'Fotos mudas/placas evento', frontId: fPetraId },
-        { title: 'Video evento' }
+      const legacyItems: Array<{ title: string; frontId?: number; dueDate?: string; criticality?: CriticalityLevel }> = [
+        { title: 'Hospedagem bananada recibo', frontId: fCidadeId, dueDate: '2026-09-01', criticality: 'baixa' },
+        { title: 'Falar com Rodolfo e clovis leads', frontId: fPetraId, dueDate: '2026-09-01', criticality: 'alta' },
+        { title: 'Acompanhar Meta', frontId: fCidadeId, dueDate: '2026-09-01', criticality: 'media' },
+        { title: 'Arrumar outdoor adezam', frontId: fPetraId, dueDate: '2026-09-01', criticality: 'media' },
+        { title: 'Portabilidade investimento XP', dueDate: '2026-09-01', criticality: 'baixa' },
+        { title: 'Casa natura dia 03', dueDate: '2026-09-03', criticality: 'media' },
+        { title: 'Aumento demanda airbnb', frontId: fAirbnbId, dueDate: '2026-09-06', criticality: 'alta' },
+        { title: 'Finalizar edital', frontId: fCidadeId, criticality: 'alta' },
+        { title: 'Fazer mais folhetos Petra A4', frontId: fPetraId, criticality: 'media' },
+        { title: 'Fazer app to do list', criticality: 'alta' },
+        { title: 'Flavia - Projeto casas Petra', frontId: fPetraId, criticality: 'alta' },
+        { title: 'IBRESP', criticality: 'baixa' },
+        { title: 'Locais ação SJC', frontId: fPetraId, criticality: 'media' },
+        { title: 'Pintura', criticality: 'baixa' },
+        { title: 'Arrumar maquete', frontId: fPetraId, criticality: 'baixa' },
+        { title: 'Planilha orçamento salão', criticality: 'media' },
+        { title: 'Placa administrativo', frontId: fPetraId, criticality: 'baixa' },
+        { title: 'Ajustar layout stand', frontId: fPetraId, criticality: 'alta' },
+        { title: 'Treinar teclado ou jam', frontId: fPessoalId, criticality: 'baixa' },
+        { title: 'Levar urina 24h', frontId: fPessoalId, criticality: 'alta' },
+        { title: 'Enviar nota bigberg', criticality: 'baixa' },
+        { title: 'Melhorar app life logger - colocar alerta', criticality: 'media' },
+        { title: 'Basquete ou corrida ou acad', frontId: fPessoalId, criticality: 'baixa' },
+        { title: 'Cobrar Joilson', frontId: fCidadeId, criticality: 'alta' },
+        { title: 'Feira', frontId: fPessoalId, criticality: 'baixa' },
+        { title: 'Conta de luz Serasa', frontId: fPessoalId, criticality: 'alta' },
+        { title: 'Viagens', criticality: 'baixa' },
+        { title: 'Traking', criticality: 'baixa' },
+        { title: 'Aparecida viagem', criticality: 'baixa' },
+        { title: 'Corrida eu na montanha dia 27 de setembro', frontId: fPetraId, dueDate: '2026-09-27', criticality: 'media' },
+        { title: 'Calculo life logger', frontId: fPessoalId, criticality: 'media' },
+        { title: 'Serassa', frontId: fPessoalId, criticality: 'alta' },
+        { title: 'Documentos creci', frontId: fPessoalId, criticality: 'alta' },
+        { title: 'Folhetos construvale/blacknovember', frontId: fPetraId, criticality: 'media' },
+        { title: 'Book construvale/stand 10 unid', criticality: 'media' },
+        { title: 'Fotos mudas/placas evento', frontId: fPetraId, criticality: 'media' },
+        { title: 'Video evento', criticality: 'alta' }
       ];
 
       for (const item of legacyItems) {
@@ -124,6 +125,7 @@ export default function App() {
           title: item.title,
           frontId: item.frontId,
           dueDate: item.dueDate,
+          criticality: item.criticality || 'media',
           completed: false,
           createdAt: new Date().toISOString()
         });
@@ -133,7 +135,6 @@ export default function App() {
     seedLegacyData();
   }, []);
 
-  // Abrir Modal para Criar
   const handleOpenCreateModal = () => {
     setEditingTaskId(null);
     setEditingFrontId(null);
@@ -141,6 +142,7 @@ export default function App() {
     setTaskNotes('');
     setTaskDate(activeTab === 'today' ? todayStr : '');
     setTaskFrontId('');
+    setTaskCriticality('media');
     setFrontName('');
     setFrontColor('#3b82f6');
     setIdeaTitle('');
@@ -151,7 +153,6 @@ export default function App() {
     setIsModalOpen(true);
   };
 
-  // Abrir Modal para Editar Tarefa
   const handleEditTask = (task: Task) => {
     if (!task.id) return;
     setEditingTaskId(task.id);
@@ -159,14 +160,13 @@ export default function App() {
     setTaskNotes(task.notes || '');
     setTaskDate(task.dueDate || '');
     setTaskFrontId(task.frontId ? String(task.frontId) : '');
+    setTaskCriticality(task.criticality || 'media');
     setIsModalOpen(true);
   };
 
-  // Adiar/Prorrogar Validade (+1, +3 ou +5 dias)
   const handleSnoozeTask = async (e: React.MouseEvent, task: Task, days: number) => {
     e.stopPropagation();
     if (!task.id) return;
-    // Se a tarefa já está atrasada ou sem data, conta a partir de hoje; senão, soma ao prazo atual
     const baseDate = (task.dueDate && task.dueDate >= todayStr) ? task.dueDate : todayStr;
     const newDueDate = addDaysToDate(baseDate, days);
     
@@ -176,7 +176,6 @@ export default function App() {
     });
   };
 
-  // Abrir Modal para Editar Frente
   const handleEditFront = (front: Front) => {
     if (!front.id) return;
     setEditingFrontId(front.id);
@@ -185,7 +184,6 @@ export default function App() {
     setIsModalOpen(true);
   };
 
-  // Salvar (Criação ou Edição)
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -198,6 +196,7 @@ export default function App() {
           notes: taskNotes.trim() || undefined,
           dueDate: taskDate || undefined,
           frontId: taskFrontId ? Number(taskFrontId) : undefined,
+          criticality: taskCriticality,
         });
       } else {
         await db.tasks.add({
@@ -206,6 +205,7 @@ export default function App() {
           completed: false,
           dueDate: taskDate || undefined,
           frontId: taskFrontId ? Number(taskFrontId) : undefined,
+          criticality: taskCriticality,
           createdAt: new Date().toISOString(),
         });
       }
@@ -214,6 +214,7 @@ export default function App() {
       setTaskNotes('');
       setTaskDate('');
       setTaskFrontId('');
+      setTaskCriticality('media');
       setEditingTaskId(null);
     } else if (activeTab === 'fronts') {
       if (!frontName.trim()) return;
@@ -266,11 +267,10 @@ export default function App() {
     await db.tasks.delete(id);
   };
 
-  // Exportar Backup
   const handleExportData = async () => {
     try {
       const exportData = {
-        version: 2,
+        version: 3,
         exportedAt: new Date().toISOString(),
         tasks: await db.tasks.toArray(),
         fronts: await db.fronts.toArray(),
@@ -290,7 +290,6 @@ export default function App() {
     }
   };
 
-  // Importar Backup
   const handleImportData = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -314,26 +313,44 @@ export default function App() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Filtros Reativos
+  // Filtro integrado por busca textual, frente e criticidade
   const filterTaskList = (list: Task[]) => {
+    const q = searchQuery.toLowerCase().trim();
     return list.filter((task) => {
+      const taskCrit = task.criticality ? task.criticality.toLowerCase() : '';
       const matchesSearch = 
-        task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (task.notes && task.notes.toLowerCase().includes(searchQuery.toLowerCase()));
+        !q ||
+        task.title.toLowerCase().includes(q) ||
+        (task.notes && task.notes.toLowerCase().includes(q)) ||
+        taskCrit.includes(q) ||
+        (q === 'média' && taskCrit === 'media');
       
       const matchesFront = 
         selectedFrontFilter === 'all' || task.frontId === selectedFrontFilter;
 
-      return matchesSearch && matchesFront;
+      const matchesCriticality = 
+        selectedCriticalityFilter === 'all' || task.criticality === selectedCriticalityFilter;
+
+      return matchesSearch && matchesFront && matchesCriticality;
     });
   };
 
-  // Na aba Hoje entram as tarefas de hoje, as atrasadas (dueDate < hoje) e as sem data pendentes
   const todayBaseTasks = tasks.filter(t => (t.dueDate && t.dueDate <= todayStr && !t.completed) || (!t.dueDate && !t.completed));
   const filteredTodayTasks = filterTaskList(todayBaseTasks);
   const filteredAllTasks = filterTaskList(tasks);
 
-  // Renderizador de Card de Tarefa com Validade e Snooze Rápido
+  const getCriticalityBadge = (level?: CriticalityLevel) => {
+    switch (level) {
+      case 'alta':
+        return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-0.5"><Flame className="h-3 w-3 text-rose-400" /> Alta</span>;
+      case 'baixa':
+        return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-800/80 text-zinc-400 border border-zinc-700/50">Baixa</span>;
+      case 'media':
+      default:
+        return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/25">Média</span>;
+    }
+  };
+
   const renderTaskCard = (task: Task) => {
     const front = fronts.find(f => f.id === task.frontId);
     const isOverdue = task.dueDate && task.dueDate < todayStr && !task.completed;
@@ -363,8 +380,8 @@ export default function App() {
                 {task.title}
               </span>
               
-              {/* Badges de Validade, Frente e Prazo */}
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px] mt-1">
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] mt-1.5">
+                {getCriticalityBadge(task.criticality)}
                 {task.dueDate && (
                   <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded font-medium ${
                     isOverdue 
@@ -392,13 +409,12 @@ export default function App() {
             </div>
           </div>
 
-          {/* Botões de Ação Direta (+1, +3, +5 e Excluir) */}
           <div className="flex items-center gap-1 shrink-0">
             {!task.completed && (
               <div className="flex items-center gap-0.5 bg-zinc-950/70 border border-zinc-800 rounded-lg p-0.5">
                 <button
                   type="button"
-                  title="Cobrar / Adiar +1 dia"
+                  title="Adiar +1 dia"
                   onClick={(e) => handleSnoozeTask(e, task, 1)}
                   className="px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded transition"
                 >
@@ -406,7 +422,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Cobrar / Adiar +3 dias"
+                  title="Adiar +3 dias"
                   onClick={(e) => handleSnoozeTask(e, task, 3)}
                   className="px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded transition"
                 >
@@ -414,7 +430,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Cobrar / Adiar +5 dias"
+                  title="Adiar +5 dias"
                   onClick={(e) => handleSnoozeTask(e, task, 5)}
                   className="px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded transition"
                 >
@@ -444,7 +460,6 @@ export default function App() {
 
   return (
     <div className="flex flex-col min-h-screen bg-zinc-950 text-zinc-100 font-sans">
-      {/* Header com Safe Area */}
       <header className="sticky top-0 z-20 border-b border-zinc-800/80 bg-zinc-950/95 backdrop-blur-md pt-safe px-4 pb-3">
         <div className="mx-auto flex max-w-md items-center justify-between">
           <div className="flex items-center gap-2">
@@ -484,14 +499,14 @@ export default function App() {
           </div>
         </div>
 
-        {/* Lupa e Carrossel de Frentes */}
+        {/* Lupa e Filtros de Frentes + Criticidade */}
         {(activeTab === 'today' || activeTab === 'tasks') && (
           <div className="mx-auto max-w-md mt-3 flex flex-col gap-2">
             <div className="relative flex items-center">
               <Search className="absolute left-3 h-4 w-4 text-zinc-500" />
               <input
                 type="text"
-                placeholder="Buscar tarefas ou anotações..."
+                placeholder="Buscar (título, notas, 'alta', 'baixa')..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-xl border border-zinc-800 bg-zinc-900/90 pl-9 pr-8 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-500"
@@ -506,6 +521,36 @@ export default function App() {
               )}
             </div>
 
+            {/* Linha 1: Filtro de Criticidade */}
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider shrink-0 flex items-center gap-1">
+                <Flame className="h-3 w-3 text-amber-500" /> Criticidade:
+              </span>
+              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+                {(['all', 'alta', 'media', 'baixa'] as const).map((level) => {
+                  const isSelected = selectedCriticalityFilter === level;
+                  return (
+                    <button
+                      key={level}
+                      type="button"
+                      onClick={() => setSelectedCriticalityFilter(level)}
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition ${
+                        isSelected
+                          ? 'bg-zinc-100 text-zinc-950 font-bold'
+                          : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:bg-zinc-800'
+                      }`}
+                    >
+                      {level === 'all' && 'Todas'}
+                      {level === 'alta' && 'Alta'}
+                      {level === 'media' && 'Média'}
+                      {level === 'baixa' && 'Baixa'}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Linha 2: Carrossel Horizontal de Frentes */}
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs">
               <button
                 type="button"
@@ -516,7 +561,7 @@ export default function App() {
                     : 'bg-zinc-900 text-zinc-400 border border-zinc-800/80 hover:bg-zinc-800'
                 }`}
               >
-                Todas
+                Todas as Frentes
               </button>
               {fronts.map((front) => {
                 const isSelected = selectedFrontFilter === front.id;
@@ -546,10 +591,7 @@ export default function App() {
         )}
       </header>
 
-      {/* Conteúdo Principal */}
       <main className="flex-1 px-4 py-4 max-w-md mx-auto w-full pb-28">
-        
-        {/* ABA HOJE */}
         {activeTab === 'today' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
@@ -562,8 +604,8 @@ export default function App() {
 
             {filteredTodayTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center">
-                <p className="text-sm font-medium text-zinc-400">Tudo em dia para hoje</p>
-                <p className="text-xs text-zinc-600 mt-1">Toque no "+" para registrar ou adiar prazos.</p>
+                <p className="text-sm font-medium text-zinc-400">Nenhuma tarefa correspondente</p>
+                <p className="text-xs text-zinc-600 mt-1">Toque no "+" para registrar uma nova.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
@@ -573,7 +615,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA TAREFAS */}
         {activeTab === 'tasks' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
@@ -584,7 +625,7 @@ export default function App() {
             {filteredAllTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center">
                 <p className="text-sm font-medium text-zinc-400">Nenhuma tarefa encontrada</p>
-                <p className="text-xs text-zinc-600 mt-1">Altere o filtro ou adicione uma nova.</p>
+                <p className="text-xs text-zinc-600 mt-1">Altere os filtros ou adicione uma nova.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
@@ -594,7 +635,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA FRENTES */}
         {activeTab === 'fronts' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
@@ -644,7 +684,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA IDEIAS */}
         {activeTab === 'ideas' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
@@ -683,7 +722,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA CONTATOS */}
         {activeTab === 'people' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
@@ -724,10 +762,8 @@ export default function App() {
             )}
           </div>
         )}
-
       </main>
 
-      {/* Botão Flutuante (+) */}
       <button
         type="button"
         onClick={handleOpenCreateModal}
@@ -790,11 +826,52 @@ export default function App() {
                     onChange={(e) => setTaskNotes(e.target.value)}
                     className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-xs text-zinc-200 placeholder-zinc-500 outline-none focus:border-zinc-400 resize-none"
                   />
+
+                  {/* Seletor de Criticidade */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] uppercase font-semibold text-zinc-500 flex items-center gap-1">
+                      <Flame className="h-3 w-3 text-amber-500" /> Grau de Criticidade
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setTaskCriticality('baixa')}
+                        className={`py-2 rounded-xl text-xs font-semibold border transition ${
+                          taskCriticality === 'baixa'
+                            ? 'border-zinc-300 bg-zinc-200 text-zinc-950 shadow'
+                            : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+                        }`}
+                      >
+                        Baixa
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTaskCriticality('media')}
+                        className={`py-2 rounded-xl text-xs font-semibold border transition ${
+                          taskCriticality === 'media'
+                            ? 'border-amber-400 bg-amber-500 text-zinc-950 shadow'
+                            : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+                        }`}
+                      >
+                        Média
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTaskCriticality('alta')}
+                        className={`py-2 rounded-xl text-xs font-semibold border transition ${
+                          taskCriticality === 'alta'
+                            ? 'border-rose-400 bg-rose-500 text-white shadow'
+                            : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+                        }`}
+                      >
+                        Alta 🔥
+                      </button>
+                    </div>
+                  </div>
                   
                   <div className="flex flex-col gap-1.5">
                     <div className="flex items-center justify-between">
                       <label className="text-[10px] uppercase font-semibold text-zinc-500">Validade / Prazo</label>
-                      {/* Botões Rápidos de Prazo no Modal */}
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
@@ -899,14 +976,14 @@ export default function App() {
                     placeholder="Cargo ou papel"
                     value={contactRole}
                     onChange={(e) => setContactRole(e.target.value)}
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
                   />
                   <input
                     type="text"
                     placeholder="Telefone ou anotações"
                     value={contactNotes}
                     onChange={(e) => setContactNotes(e.target.value)}
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
                   />
                 </>
               )}
@@ -922,7 +999,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Navegação Inferior */}
       <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-800/80 bg-zinc-950/95 px-3 pt-2 pb-safe backdrop-blur-lg">
         <div className="mx-auto flex max-w-md items-center justify-around">
           <button

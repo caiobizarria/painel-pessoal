@@ -1,5 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 
+export type CriticalityLevel = 'baixa' | 'media' | 'alta';
+
 export interface Task {
   id?: number;
   title: string;
@@ -7,6 +9,7 @@ export interface Task {
   frontId?: number;
   completed: boolean;
   dueDate?: string;
+  criticality?: CriticalityLevel;
   createdAt: string;
 }
 
@@ -47,6 +50,9 @@ export class PersonalDatabase extends Dexie {
     });
     this.version(2).stores({
       tasks: '++id, title, notes, frontId, completed, dueDate, createdAt',
+    });
+    this.version(3).stores({
+      tasks: '++id, title, notes, frontId, completed, dueDate, criticality, createdAt',
     });
   }
 }
