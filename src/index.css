@@ -2,16 +2,24 @@
 @tailwind components;
 @tailwind utilities;
 
+* {
+  box-sizing: border-box;
+}
+
 html, body {
   margin: 0;
   padding: 0;
   width: 100%;
-  height: 100%;
-  overflow-x: hidden;
-  touch-action: pan-x pan-y;
+  min-height: 100%;
+  background-color: #09090b;
+  color: #f4f4f5;
   -webkit-text-size-adjust: 100%;
-  overscroll-behavior-y: none;
   -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
+}
+
+body {
+  touch-action: manipulation;
 }
 
 #root {
