@@ -28,7 +28,6 @@ body {
   flex-direction: column;
 }
 
-/* Ajuste específico para input de data no iOS Safari */
 input[type="date"] {
   min-height: 42px;
   display: inline-flex;
