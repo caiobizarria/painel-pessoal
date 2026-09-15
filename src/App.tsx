@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Task } from './core/db/schema';
 import { 
@@ -21,7 +21,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'today' | 'tasks' | 'fronts' | 'ideas' | 'people'>('today');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Formulário Unificado de Tarefa
+  // Formulário Tarefa
   const [taskTitle, setTaskTitle] = useState('');
   const [taskNotes, setTaskNotes] = useState('');
   const [taskDate, setTaskDate] = useState('');
@@ -48,6 +48,73 @@ export default function App() {
   const contacts = useLiveQuery(() => db.contacts.reverse().toArray()) ?? [];
 
   const todayStr = new Date().toISOString().split('T')[0];
+
+  // --- Seed Automático de Atividades Legadas ---
+  useEffect(() => {
+    const seedLegacyData = async () => {
+      const existingTasksCount = await db.tasks.count();
+      if (existingTasksCount > 0) return; // Só popula se o banco estiver vazio
+
+      // 1. Criar Frentes
+      const fCidadeId = await db.fronts.add({ name: '🎸 Cidade Dormitório', color: '#ec4899' }) as number;
+      const fPetraId = await db.fronts.add({ name: 'Petra', color: '#3b82f6' }) as number;
+      const fAirbnbId = await db.fronts.add({ name: '🏡 Airbnb', color: '#10b981' }) as number;
+      const fPessoalId = await db.fronts.add({ name: 'Pessoal', color: '#f59e0b' }) as number;
+
+      // 2. Lista de Atividades
+      const legacyItems: Array<{ title: string; frontId?: number; dueDate?: string }> = [
+        { title: 'Hospedagem bananada recibo', frontId: fCidadeId, dueDate: '2026-09-01' },
+        { title: 'Falar com Rodolfo e clovis leads', frontId: fPetraId, dueDate: '2026-09-01' },
+        { title: 'Acompanhar Meta', frontId: fCidadeId, dueDate: '2026-09-01' },
+        { title: 'Arrumar outdoor adezam', frontId: fPetraId, dueDate: '2026-09-01' },
+        { title: 'Portabilidade investimento XP', dueDate: '2026-09-01' },
+        { title: 'Casa natura dia 03', dueDate: '2026-09-03' },
+        { title: 'Aumento demanda airbnb', frontId: fAirbnbId, dueDate: '2026-09-06' },
+        { title: 'Finalizar edital', frontId: fCidadeId },
+        { title: 'Fazer mais folhetos Petra A4', frontId: fPetraId },
+        { title: 'Fazer app to do list' },
+        { title: 'Flavia - Projeto casas Petra', frontId: fPetraId },
+        { title: 'IBRESP' },
+        { title: 'Locais ação SJC', frontId: fPetraId },
+        { title: 'Pintura' },
+        { title: 'Arrumar maquete', frontId: fPetraId },
+        { title: 'Planilha orçamento salão' },
+        { title: 'Placa administrativo', frontId: fPetraId },
+        { title: 'Ajustar layout stand', frontId: fPetraId },
+        { title: 'Treinar teclado ou jam', frontId: fPessoalId },
+        { title: 'Levar urina 24h', frontId: fPessoalId },
+        { title: 'Enviar nota bigberg' },
+        { title: 'Melhorar app life logger - colocar alerta' },
+        { title: 'Basquete ou corrida ou acad', frontId: fPessoalId },
+        { title: 'Cobrar Joilson', frontId: fCidadeId },
+        { title: 'Feira', frontId: fPessoalId },
+        { title: 'Conta de luz Serasa', frontId: fPessoalId },
+        { title: 'Viagens' },
+        { title: 'Traking' },
+        { title: 'Aparecida viagem' },
+        { title: 'Corrida eu na montanha dia 27 de setembro', frontId: fPetraId, dueDate: '2026-09-27' },
+        { title: 'Calculo life logger', frontId: fPessoalId },
+        { title: 'Serassa', frontId: fPessoalId },
+        { title: 'Documentos creci', frontId: fPessoalId },
+        { title: 'Folhetos construvale/blacknovember', frontId: fPetraId },
+        { title: 'Book construvale/stand 10 unid' },
+        { title: 'Fotos mudas/placas evento', frontId: fPetraId },
+        { title: 'Video evento' }
+      ];
+
+      for (const item of legacyItems) {
+        await db.tasks.add({
+          title: item.title,
+          frontId: item.frontId,
+          dueDate: item.dueDate,
+          completed: false,
+          createdAt: new Date().toISOString()
+        });
+      }
+    };
+
+    seedLegacyData();
+  }, []);
 
   const handleOpenModal = () => {
     if (activeTab === 'today') {
@@ -164,7 +231,7 @@ export default function App() {
 
   return (
     <div className="flex flex-col min-h-screen bg-zinc-950 text-zinc-100 font-sans">
-      {/* Cabeçalho Limpo com Safe Area */}
+      {/* Top Header */}
       <header className="sticky top-0 z-20 border-b border-zinc-800/80 bg-zinc-950/95 backdrop-blur-md pt-safe px-4 pb-3">
         <div className="mx-auto flex max-w-md items-center justify-between">
           <div className="flex items-center gap-2">
@@ -205,7 +272,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Listagem Pura e Sem Poluição */}
+      {/* Conteúdo Central */}
       <main className="flex-1 px-4 py-4 max-w-md mx-auto w-full pb-28">
         
         {/* ================= ABA HOJE ================= */}
@@ -248,14 +315,22 @@ export default function App() {
                             <span className={`text-sm truncate ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>
                               {task.title}
                             </span>
-                            {front && (
-                              <span 
-                                className="w-fit mt-0.5 px-1.5 py-0.2 rounded text-[10px] font-medium"
-                                style={{ backgroundColor: `${front.color}22`, color: front.color }}
-                              >
-                                {front.name}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-2 text-[11px] text-zinc-400 mt-0.5">
+                              {task.dueDate && (
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {task.dueDate}
+                                </span>
+                              )}
+                              {front && (
+                                <span 
+                                  className="w-fit px-1.5 py-0.2 rounded text-[10px] font-medium"
+                                  style={{ backgroundColor: `${front.color}22`, color: front.color }}
+                                >
+                                  {front.name}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </button>
 
@@ -479,7 +554,7 @@ export default function App() {
 
       </main>
 
-      {/* Único Botão Flutuante (+) no Canto Inferior Direito */}
+      {/* Botão Flutuante (+) Unificado */}
       <button
         type="button"
         onClick={handleOpenModal}
@@ -489,7 +564,7 @@ export default function App() {
         <Plus className="h-6 w-6 stroke-[2.5]" />
       </button>
 
-      {/* Gaveta Modal Padronizada */}
+      {/* Gaveta Modal de Cadastro */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm p-0">
           <div 
@@ -612,7 +687,7 @@ export default function App() {
                   />
                   <input
                     type="text"
-                    placeholder="Cargo ou papel (ex: Fornecedor, Cerimonialista)"
+                    placeholder="Cargo ou papel"
                     value={contactRole}
                     onChange={(e) => setContactRole(e.target.value)}
                     className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
@@ -622,7 +697,7 @@ export default function App() {
                     placeholder="Telefone ou anotações"
                     value={contactNotes}
                     onChange={(e) => setContactNotes(e.target.value)}
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
                   />
                 </>
               )}
@@ -638,7 +713,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Barra de Navegação Inferior */}
+      {/* Navegação Inferior */}
       <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-800/80 bg-zinc-950/95 px-3 pt-2 pb-safe backdrop-blur-lg">
         <div className="mx-auto flex max-w-md items-center justify-around">
           <button
