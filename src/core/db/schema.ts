@@ -26,11 +26,15 @@ export interface Idea {
   createdAt: string;
 }
 
-export interface Contact {
+export interface DebtCollection {
   id?: number;
-  name: string;
-  role: string;
-  notes?: string;
+  contactName: string;
+  phone: string;
+  reason: string;
+  details?: string;
+  amount?: string;
+  dueDate?: string;
+  status: 'pendente' | 'cobrado' | 'resolvido';
   createdAt: string;
 }
 
@@ -38,7 +42,7 @@ export class PersonalDatabase extends Dexie {
   tasks!: Table<Task>;
   fronts!: Table<Front>;
   ideas!: Table<Idea>;
-  contacts!: Table<Contact>;
+  collections!: Table<DebtCollection>;
 
   constructor() {
     super('PersonalDatabase');
@@ -53,6 +57,9 @@ export class PersonalDatabase extends Dexie {
     });
     this.version(3).stores({
       tasks: '++id, title, notes, frontId, completed, dueDate, criticality, createdAt',
+    });
+    this.version(4).stores({
+      collections: '++id, contactName, phone, status, dueDate, createdAt',
     });
   }
 }

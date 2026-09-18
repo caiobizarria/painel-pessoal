@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Task, type Front, type CriticalityLevel } from './core/db/schema';
+import { db, type Task, type Front, type DebtCollection, type CriticalityLevel } from './core/db/schema';
 import { 
   CheckCircle2, 
   Circle, 
@@ -9,16 +9,21 @@ import {
   Trash2, 
   FolderKanban, 
   Lightbulb, 
-  Users, 
   CheckSquare, 
-  Clock, 
   Download, 
   Upload, 
   X, 
   Search, 
   Edit3, 
   AlertCircle,
-  Flame
+  Flame,
+  PhoneCall,
+  Copy,
+  Check,
+  FileSpreadsheet,
+  BadgeAlert,
+  Send,
+  Zap
 } from 'lucide-react';
 
 function addDaysToDate(baseDateStr: string | undefined, daysToAdd: number): string {
@@ -28,12 +33,16 @@ function addDaysToDate(baseDateStr: string | undefined, daysToAdd: number): stri
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'today' | 'tasks' | 'fronts' | 'ideas' | 'people'>('today');
+  const [activeTab, setActiveTab] = useState<'critical' | 'tasks' | 'fronts' | 'ideas' | 'collections'>('critical');
   
   // Modais de Criação / Edição
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editingFrontId, setEditingFrontId] = useState<number | null>(null);
+  const [editingCollectionId, setEditingCollectionId] = useState<number | null>(null);
+
+  // Modal de Backup / Fallback
+  const [backupTextModal, setBackupTextModal] = useState<string | null>(null);
 
   // Busca e Filtros
   const [searchQuery, setSearchQuery] = useState('');
@@ -55,24 +64,28 @@ export default function App() {
   const [ideaTitle, setIdeaTitle] = useState('');
   const [ideaContent, setIdeaContent] = useState('');
 
-  // Formulário Contatos
-  const [contactName, setContactName] = useState('');
-  const [contactRole, setContactRole] = useState('');
-  const [contactNotes, setContactNotes] = useState('');
+  // Formulário Cobrança
+  const [colContactName, setColContactName] = useState('');
+  const [colPhone, setColPhone] = useState('');
+  const [colReason, setColReason] = useState('');
+  const [colDetails, setColDetails] = useState('');
+  const [colAmount, setColAmount] = useState('');
+  const [colStatus, setColStatus] = useState<'pendente' | 'cobrado' | 'resolvido'>('pendente');
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const tasks = useLiveQuery(() => db.tasks.reverse().toArray()) ?? [];
   const fronts = useLiveQuery(() => db.fronts.toArray()) ?? [];
   const ideas = useLiveQuery(() => db.ideas.reverse().toArray()) ?? [];
-  const contacts = useLiveQuery(() => db.contacts.reverse().toArray()) ?? [];
+  const collections = useLiveQuery(() => db.collections.reverse().toArray()) ?? [];
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // Seed Automático
+  // Seed de tarefas legadas (apenas se o banco estiver vazio)
   useEffect(() => {
     const seedLegacyData = async () => {
-      const existingTasksCount = await db.tasks.count();
+      const existingTasksCount = await db.tasks.count().catch(() => 0);
       if (existingTasksCount > 0) return;
 
       const fCidadeId = await db.fronts.add({ name: '🎸 Cidade Dormitório', color: '#ec4899' }) as number;
@@ -130,6 +143,16 @@ export default function App() {
           createdAt: new Date().toISOString()
         });
       }
+
+      await db.collections.add({
+        contactName: 'Joilson',
+        phone: '11999999999',
+        reason: 'Cobrar cachê e acerto show',
+        details: 'Verificar comprovante pendente da apresentação de setembro.',
+        amount: 'R$ 1.500,00',
+        status: 'pendente',
+        createdAt: new Date().toISOString()
+      });
     };
 
     seedLegacyData();
@@ -138,18 +161,22 @@ export default function App() {
   const handleOpenCreateModal = () => {
     setEditingTaskId(null);
     setEditingFrontId(null);
+    setEditingCollectionId(null);
     setTaskTitle('');
     setTaskNotes('');
-    setTaskDate(activeTab === 'today' ? todayStr : '');
+    setTaskCriticality(activeTab === 'critical' ? 'alta' : 'media');
+    setTaskDate(activeTab === 'critical' ? todayStr : '');
     setTaskFrontId('');
-    setTaskCriticality('media');
     setFrontName('');
     setFrontColor('#3b82f6');
     setIdeaTitle('');
     setIdeaContent('');
-    setContactName('');
-    setContactRole('');
-    setContactNotes('');
+    setColContactName('');
+    setColPhone('');
+    setColReason('');
+    setColDetails('');
+    setColAmount('');
+    setColStatus('pendente');
     setIsModalOpen(true);
   };
 
@@ -161,6 +188,18 @@ export default function App() {
     setTaskDate(task.dueDate || '');
     setTaskFrontId(task.frontId ? String(task.frontId) : '');
     setTaskCriticality(task.criticality || 'media');
+    setIsModalOpen(true);
+  };
+
+  const handleEditCollection = (col: DebtCollection) => {
+    if (!col.id) return;
+    setEditingCollectionId(col.id);
+    setColContactName(col.contactName);
+    setColPhone(col.phone);
+    setColReason(col.reason);
+    setColDetails(col.details || '');
+    setColAmount(col.amount || '');
+    setColStatus(col.status);
     setIsModalOpen(true);
   };
 
@@ -176,18 +215,10 @@ export default function App() {
     });
   };
 
-  const handleEditFront = (front: Front) => {
-    if (!front.id) return;
-    setEditingFrontId(front.id);
-    setFrontName(front.name);
-    setFrontColor(front.color);
-    setIsModalOpen(true);
-  };
-
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (activeTab === 'today' || activeTab === 'tasks') {
+    if (activeTab === 'critical' || activeTab === 'tasks') {
       if (!taskTitle.trim()) return;
 
       if (editingTaskId) {
@@ -209,27 +240,13 @@ export default function App() {
           createdAt: new Date().toISOString(),
         });
       }
-
-      setTaskTitle('');
-      setTaskNotes('');
-      setTaskDate('');
-      setTaskFrontId('');
-      setTaskCriticality('media');
-      setEditingTaskId(null);
     } else if (activeTab === 'fronts') {
       if (!frontName.trim()) return;
-
       if (editingFrontId) {
-        await db.fronts.update(editingFrontId, {
-          name: frontName.trim(),
-          color: frontColor,
-        });
+        await db.fronts.update(editingFrontId, { name: frontName.trim(), color: frontColor });
       } else {
         await db.fronts.add({ name: frontName.trim(), color: frontColor });
       }
-
-      setFrontName('');
-      setEditingFrontId(null);
     } else if (activeTab === 'ideas') {
       if (!ideaTitle.trim()) return;
       await db.ideas.add({
@@ -237,19 +254,28 @@ export default function App() {
         content: ideaContent.trim(),
         createdAt: new Date().toISOString(),
       });
-      setIdeaTitle('');
-      setIdeaContent('');
-    } else if (activeTab === 'people') {
-      if (!contactName.trim()) return;
-      await db.contacts.add({
-        name: contactName.trim(),
-        role: contactRole.trim(),
-        notes: contactNotes.trim(),
-        createdAt: new Date().toISOString(),
-      });
-      setContactName('');
-      setContactRole('');
-      setContactNotes('');
+    } else if (activeTab === 'collections') {
+      if (!colContactName.trim() || !colReason.trim()) return;
+      if (editingCollectionId) {
+        await db.collections.update(editingCollectionId, {
+          contactName: colContactName.trim(),
+          phone: colPhone.trim(),
+          reason: colReason.trim(),
+          details: colDetails.trim() || undefined,
+          amount: colAmount.trim() || undefined,
+          status: colStatus
+        });
+      } else {
+        await db.collections.add({
+          contactName: colContactName.trim(),
+          phone: colPhone.trim(),
+          reason: colReason.trim(),
+          details: colDetails.trim() || undefined,
+          amount: colAmount.trim() || undefined,
+          status: colStatus,
+          createdAt: new Date().toISOString()
+        });
+      }
     }
 
     setIsModalOpen(false);
@@ -267,29 +293,62 @@ export default function App() {
     await db.tasks.delete(id);
   };
 
+  // Exportar Backup Blindado para Safari iOS e Desktop
   const handleExportData = async () => {
     try {
+      const exportTasks = await db.tasks.toArray().catch(() => []);
+      const exportFronts = await db.fronts.toArray().catch(() => []);
+      const exportIdeas = await db.ideas.toArray().catch(() => []);
+      const exportCollections = db.collections ? await db.collections.toArray().catch(() => []) : [];
+
       const exportData = {
-        version: 3,
+        version: 4,
         exportedAt: new Date().toISOString(),
-        tasks: await db.tasks.toArray(),
-        fronts: await db.fronts.toArray(),
-        ideas: await db.ideas.toArray(),
-        contacts: await db.contacts.toArray(),
+        tasks: exportTasks,
+        fronts: exportFronts,
+        ideas: exportIdeas,
+        collections: exportCollections,
       };
 
-      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(exportData, null, 2));
-      const downloadAnchor = document.createElement('a');
-      downloadAnchor.setAttribute('href', dataStr);
-      downloadAnchor.setAttribute('download', `backup-painel-${todayStr}.json`);
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-    } catch {
-      alert('Falha ao gerar backup.');
+      const jsonString = JSON.stringify(exportData, null, 2);
+
+      // Tenta download direto via Blob
+      try {
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const filename = `backup-painel-${todayStr}.json`;
+
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.href = url;
+        downloadAnchor.download = filename;
+        downloadAnchor.target = '_blank';
+        downloadAnchor.rel = 'noopener';
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+
+        setTimeout(() => {
+          document.body.removeChild(downloadAnchor);
+          URL.revokeObjectURL(url);
+        }, 800);
+      } catch {
+        // Fallback para WebView ou Safari restritivo: modal com texto pronto
+        setBackupTextModal(jsonString);
+      }
+    } catch (err: any) {
+      console.error('Erro ao exportar:', err);
+      alert('Não foi possível gerar o arquivo. Tentando copiar para a área de transferência...');
+      try {
+        const fallbackTasks = await db.tasks.toArray();
+        const jsonFallback = JSON.stringify({ tasks: fallbackTasks }, null, 2);
+        await navigator.clipboard.writeText(jsonFallback);
+        alert('Backup copiado para a Área de Transferência com sucesso!');
+      } catch {
+        alert('Falha ao exportar dados.');
+      }
     }
   };
 
+  // Importar Backup
   const handleImportData = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -302,7 +361,7 @@ export default function App() {
           if (json.tasks?.length) await db.tasks.bulkPut(json.tasks);
           if (json.fronts?.length) await db.fronts.bulkPut(json.fronts);
           if (json.ideas?.length) await db.ideas.bulkPut(json.ideas);
-          if (json.contacts?.length) await db.contacts.bulkPut(json.contacts);
+          if (json.collections?.length) await db.collections.bulkPut(json.collections);
           alert('Dados sincronizados com sucesso!');
         }
       } catch {
@@ -313,7 +372,54 @@ export default function App() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Filtro integrado por busca textual, frente e criticidade
+  // Exportar Planilha CSV para Cobranças
+  const handleExportCollectionsCSV = () => {
+    if (collections.length === 0) {
+      alert('Nenhuma cobrança registrada para exportar.');
+      return;
+    }
+
+    const headers = ['Nome / Contato', 'Celular', 'Motivo', 'Descricao / Detalhes', 'Valor', 'Status', 'Data Criacao'];
+    const rows = collections.map(c => [
+      `"${c.contactName.replace(/"/g, '""')}"`,
+      `"${c.phone.replace(/"/g, '""')}"`,
+      `"${c.reason.replace(/"/g, '""')}"`,
+      `"${(c.details || '').replace(/"/g, '""')}"`,
+      `"${(c.amount || '').replace(/"/g, '""')}"`,
+      `"${c.status}"`,
+      `"${c.createdAt.split('T')[0]}"`
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `cobrancas-planilha-${todayStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }, 800);
+  };
+
+  const handleOpenWhatsApp = (e: React.MouseEvent, phone: string, text: string) => {
+    e.stopPropagation();
+    const cleanPhone = phone.replace(/\D/g, '');
+    const phoneWithDDI = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
+    const url = `https://wa.me/${phoneWithDDI}?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
+  };
+
+  const handleCopyText = (e: React.MouseEvent, id: number, textToCopy: string) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(textToCopy);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  // Filtro de Tarefas
   const filterTaskList = (list: Task[]) => {
     const q = searchQuery.toLowerCase().trim();
     return list.filter((task) => {
@@ -325,18 +431,22 @@ export default function App() {
         taskCrit.includes(q) ||
         (q === 'média' && taskCrit === 'media');
       
-      const matchesFront = 
-        selectedFrontFilter === 'all' || task.frontId === selectedFrontFilter;
-
-      const matchesCriticality = 
-        selectedCriticalityFilter === 'all' || task.criticality === selectedCriticalityFilter;
+      const matchesFront = selectedFrontFilter === 'all' || task.frontId === selectedFrontFilter;
+      const matchesCriticality = selectedCriticalityFilter === 'all' || task.criticality === selectedCriticalityFilter;
 
       return matchesSearch && matchesFront && matchesCriticality;
     });
   };
 
-  const todayBaseTasks = tasks.filter(t => (t.dueDate && t.dueDate <= todayStr && !t.completed) || (!t.dueDate && !t.completed));
-  const filteredTodayTasks = filterTaskList(todayBaseTasks);
+  // Aba Críticas: Apenas Tarefas não concluídas que sejam Alta OU com prazo até hoje/atrasadas
+  const criticalBaseTasks = tasks.filter(t => 
+    !t.completed && (
+      t.criticality === 'alta' || 
+      (t.dueDate && t.dueDate <= todayStr)
+    )
+  );
+
+  const filteredCriticalTasks = filterTaskList(criticalBaseTasks);
   const filteredAllTasks = filterTaskList(tasks);
 
   const getCriticalityBadge = (level?: CriticalityLevel) => {
@@ -355,12 +465,18 @@ export default function App() {
     const front = fronts.find(f => f.id === task.frontId);
     const isOverdue = task.dueDate && task.dueDate < todayStr && !task.completed;
     const isDueToday = task.dueDate === todayStr && !task.completed;
+    const isHighCriticality = task.criticality === 'alta' && !task.completed;
+    const isUrgent = isOverdue || isHighCriticality;
 
     return (
       <div
         key={task.id}
         onClick={() => handleEditTask(task)}
-        className="cursor-pointer flex flex-col gap-2 rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-3.5 transition active:bg-zinc-900/60 hover:border-zinc-700"
+        className={`cursor-pointer flex flex-col gap-2 rounded-xl p-3.5 transition active:scale-[0.99] ${
+          isUrgent
+            ? 'border border-rose-500/80 bg-rose-950/20 shadow-lg shadow-rose-950/30 ring-1 ring-rose-500/20'
+            : 'border border-zinc-800/70 bg-zinc-900/30 hover:border-zinc-700'
+        }`}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-1 items-start gap-3 overflow-hidden">
@@ -372,11 +488,11 @@ export default function App() {
               {task.completed ? (
                 <CheckCircle2 className="h-5 w-5 text-emerald-500" />
               ) : (
-                <Circle className="h-5 w-5 text-zinc-600" />
+                <Circle className={`h-5 w-5 ${isUrgent ? 'text-rose-400' : 'text-zinc-600'}`} />
               )}
             </button>
             <div className="flex flex-col min-w-0">
-              <span className={`text-sm leading-snug break-words ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>
+              <span className={`text-sm leading-snug break-words ${task.completed ? 'text-zinc-500 line-through' : isUrgent ? 'text-rose-100 font-semibold' : 'text-zinc-200'}`}>
                 {task.title}
               </span>
               
@@ -385,15 +501,15 @@ export default function App() {
                 {task.dueDate && (
                   <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded font-medium ${
                     isOverdue 
-                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' 
+                      ? 'bg-rose-500/30 text-rose-200 border border-rose-500/50 font-bold' 
                       : isDueToday 
                       ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' 
                       : 'text-zinc-400'
                   }`}>
-                    {isOverdue && <AlertCircle className="h-3 w-3 text-rose-400" />}
+                    {isOverdue && <AlertCircle className="h-3 w-3 text-rose-300" />}
                     <Calendar className="h-3 w-3" />
                     <span>{task.dueDate}</span>
-                    {isOverdue && <span className="font-bold">Atrasada</span>}
+                    {isOverdue && <span>(Atrasada!)</span>}
                     {isDueToday && <span className="font-bold">Hoje</span>}
                   </span>
                 )}
@@ -411,7 +527,7 @@ export default function App() {
 
           <div className="flex items-center gap-1 shrink-0">
             {!task.completed && (
-              <div className="flex items-center gap-0.5 bg-zinc-950/70 border border-zinc-800 rounded-lg p-0.5">
+              <div className="flex items-center gap-0.5 bg-zinc-950/80 border border-zinc-800 rounded-lg p-0.5">
                 <button
                   type="button"
                   title="Adiar +1 dia"
@@ -450,7 +566,7 @@ export default function App() {
         </div>
 
         {task.notes && (
-          <div className="pl-8 pt-1 border-t border-zinc-800/30">
+          <div className={`pl-8 pt-1.5 border-t ${isUrgent ? 'border-rose-900/40' : 'border-zinc-800/30'}`}>
             <p className="text-xs text-zinc-400 whitespace-pre-wrap leading-relaxed">{task.notes}</p>
           </div>
         )}
@@ -465,48 +581,61 @@ export default function App() {
           <div className="flex items-center gap-2">
             <h1 className="text-base font-semibold tracking-tight text-zinc-100">Painel Pessoal</h1>
             <span className="rounded-full bg-zinc-800/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-              {activeTab === 'today' && 'Hoje'}
-              {activeTab === 'tasks' && 'Tarefas'}
+              {activeTab === 'critical' && 'Críticas'}
+              {activeTab === 'tasks' && 'Todas Tarefas'}
               {activeTab === 'fronts' && 'Frentes'}
               {activeTab === 'ideas' && 'Ideias'}
-              {activeTab === 'people' && 'Contatos'}
+              {activeTab === 'collections' && 'Cobrança'}
             </span>
           </div>
 
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={handleExportData}
-              title="Exportar"
-              className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 transition hover:bg-zinc-800 active:scale-95"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span>Exportar</span>
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              title="Restaurar"
-              className="p-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200 transition active:scale-95"
-            >
-              <Upload className="h-3.5 w-3.5" />
-            </button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleImportData}
-              accept=".json"
-              className="hidden"
-            />
+            {activeTab === 'collections' ? (
+              <button
+                onClick={handleExportCollectionsCSV}
+                title="Exportar Cobranças em Planilha Excel/CSV"
+                className="flex items-center gap-1 rounded-lg border border-emerald-800/60 bg-emerald-950/50 px-2.5 py-1 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-900 active:scale-95"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                <span>Planilha</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={handleExportData}
+                  title="Exportar Backup Geral com Segurança"
+                  className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 active:scale-95"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Exportar</span>
+                </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Restaurar Backup"
+                  className="p-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200 transition active:scale-95"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                </button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleImportData}
+                  accept=".json"
+                  className="hidden"
+                />
+              </>
+            )}
           </div>
         </div>
 
-        {/* Lupa e Filtros de Frentes + Criticidade */}
-        {(activeTab === 'today' || activeTab === 'tasks') && (
+        {/* Lupa e Filtros */}
+        {(activeTab === 'critical' || activeTab === 'tasks') && (
           <div className="mx-auto max-w-md mt-3 flex flex-col gap-2">
             <div className="relative flex items-center">
               <Search className="absolute left-3 h-4 w-4 text-zinc-500" />
               <input
                 type="text"
-                placeholder="Buscar (título, notas, 'alta', 'baixa')..."
+                placeholder={activeTab === 'critical' ? "Buscar nas críticas..." : "Buscar todas as tarefas..."}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-xl border border-zinc-800 bg-zinc-900/90 pl-9 pr-8 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-500"
@@ -521,36 +650,36 @@ export default function App() {
               )}
             </div>
 
-            {/* Linha 1: Filtro de Criticidade */}
-            <div className="flex items-center gap-1.5 text-xs">
-              <span className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider shrink-0 flex items-center gap-1">
-                <Flame className="h-3 w-3 text-amber-500" /> Criticidade:
-              </span>
-              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-                {(['all', 'alta', 'media', 'baixa'] as const).map((level) => {
-                  const isSelected = selectedCriticalityFilter === level;
-                  return (
-                    <button
-                      key={level}
-                      type="button"
-                      onClick={() => setSelectedCriticalityFilter(level)}
-                      className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition ${
-                        isSelected
-                          ? 'bg-zinc-100 text-zinc-950 font-bold'
-                          : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:bg-zinc-800'
-                      }`}
-                    >
-                      {level === 'all' && 'Todas'}
-                      {level === 'alta' && 'Alta'}
-                      {level === 'media' && 'Média'}
-                      {level === 'baixa' && 'Baixa'}
-                    </button>
-                  );
-                })}
+            {activeTab === 'tasks' && (
+              <div className="flex items-center gap-1.5 text-xs">
+                <span className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider shrink-0 flex items-center gap-1">
+                  <Flame className="h-3 w-3 text-amber-500" /> Criticidade:
+                </span>
+                <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+                  {(['all', 'alta', 'media', 'baixa'] as const).map((level) => {
+                    const isSelected = selectedCriticalityFilter === level;
+                    return (
+                      <button
+                        key={level}
+                        type="button"
+                        onClick={() => setSelectedCriticalityFilter(level)}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition ${
+                          isSelected
+                            ? 'bg-zinc-100 text-zinc-950 font-bold'
+                            : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:bg-zinc-800'
+                        }`}
+                      >
+                        {level === 'all' && 'Todas'}
+                        {level === 'alta' && 'Alta 🔥'}
+                        {level === 'media' && 'Média'}
+                        {level === 'baixa' && 'Baixa'}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Linha 2: Carrossel Horizontal de Frentes */}
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs">
               <button
                 type="button"
@@ -575,13 +704,9 @@ export default function App() {
                         ? 'border-transparent font-semibold text-zinc-950'
                         : 'border-zinc-800/80 bg-zinc-900 text-zinc-300 hover:bg-zinc-800'
                     }`}
-                    style={{
-                      backgroundColor: isSelected ? front.color : undefined,
-                    }}
+                    style={{ backgroundColor: isSelected ? front.color : undefined }}
                   >
-                    {!isSelected && (
-                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: front.color }} />
-                    )}
+                    {!isSelected && <span className="h-2 w-2 rounded-full" style={{ backgroundColor: front.color }} />}
                     <span>{front.name}</span>
                   </button>
                 );
@@ -592,29 +717,35 @@ export default function App() {
       </header>
 
       <main className="flex-1 px-4 py-4 max-w-md mx-auto w-full pb-28">
-        {activeTab === 'today' && (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
+        
+        {/* ================= ABA CRÍTICAS ================= */}
+        {activeTab === 'critical' && (
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-rose-400">
               <span className="flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5 text-emerald-400" />
-                Foco do Dia & Validades
+                <BadgeAlert className="h-4 w-4 text-rose-500 animate-pulse" />
+                Foco Crítico & Urgências
               </span>
-              <span className="text-zinc-500">{filteredTodayTasks.length} itens</span>
+              <span className="rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] text-rose-300 border border-rose-500/30">
+                {filteredCriticalTasks.length} pendentes
+              </span>
             </div>
 
-            {filteredTodayTasks.length === 0 ? (
+            {filteredCriticalTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center">
-                <p className="text-sm font-medium text-zinc-400">Nenhuma tarefa correspondente</p>
-                <p className="text-xs text-zinc-600 mt-1">Toque no "+" para registrar uma nova.</p>
+                <CheckCircle2 className="h-8 w-8 text-emerald-500/50 mb-2" />
+                <p className="text-sm font-medium text-zinc-300">Nenhuma tarefa crítica pendente!</p>
+                <p className="text-xs text-zinc-600 mt-1">Nenhum item com criticidade alta ou prazo vencido.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                {filteredTodayTasks.map(renderTaskCard)}
+                {filteredCriticalTasks.map(renderTaskCard)}
               </div>
             )}
           </div>
         )}
 
+        {/* ================= ABA TAREFAS ================= */}
         {activeTab === 'tasks' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
@@ -635,6 +766,123 @@ export default function App() {
           </div>
         )}
 
+        {/* ================= ABA COBRANÇA ================= */}
+        {activeTab === 'collections' && (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
+              <span className="flex items-center gap-1.5">
+                <PhoneCall className="h-3.5 w-3.5 text-emerald-400" />
+                Painel de Cobranças
+              </span>
+              <span className="text-zinc-500">{collections.length} registros</span>
+            </div>
+
+            {collections.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center">
+                <p className="text-sm font-medium text-zinc-400">Nenhuma cobrança registrada</p>
+                <p className="text-xs text-zinc-600 mt-1">Toque no "+" para cadastrar alguém que você precisa cobrar.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2.5">
+                {collections.map((col) => {
+                  const messageText = `Olá ${col.contactName}! Estou entrando em contato referente a: ${col.reason}.${col.details ? ` (${col.details})` : ''}${col.amount ? ` Valor: ${col.amount}` : ''}`;
+                  return (
+                    <div
+                      key={col.id}
+                      onClick={() => handleEditCollection(col)}
+                      className="cursor-pointer flex flex-col gap-2.5 rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 transition hover:border-zinc-700 active:scale-[0.99]"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-col min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-zinc-100">{col.contactName}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                              col.status === 'pendente' 
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' 
+                                : col.status === 'cobrado' 
+                                ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30' 
+                                : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            }`}>
+                              {col.status}
+                            </span>
+                          </div>
+                          <span className="text-xs font-medium text-zinc-300 mt-1">
+                            Motivo: <strong className="text-zinc-100">{col.reason}</strong>
+                          </span>
+                          {col.amount && (
+                            <span className="text-xs text-emerald-400 font-semibold mt-0.5">
+                              Valor: {col.amount}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              col.id && db.collections.delete(col.id);
+                            }}
+                            className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
+                            title="Excluir"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {col.details && (
+                        <div className="rounded-lg bg-zinc-950/60 p-2 border border-zinc-800/50">
+                          <p className="text-xs text-zinc-400 whitespace-pre-wrap leading-relaxed">{col.details}</p>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between pt-1 border-t border-zinc-800/50 gap-2">
+                        <span className="text-xs text-zinc-500 font-mono">
+                          {col.phone ? col.phone : 'Sem número'}
+                        </span>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => handleCopyText(e, col.id!, messageText)}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-800 bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 active:scale-95 transition"
+                            title="Copiar texto para colar"
+                          >
+                            {copiedId === col.id ? (
+                              <>
+                                <Check className="h-3.5 w-3.5 text-emerald-400" />
+                                <span className="text-emerald-400">Copiado!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="h-3.5 w-3.5" />
+                                <span>Copiar</span>
+                              </>
+                            )}
+                          </button>
+
+                          {col.phone && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleOpenWhatsApp(e, col.phone, messageText)}
+                              className="flex items-center gap-1 px-3 py-1 rounded-lg bg-emerald-600 text-xs font-bold text-white shadow hover:bg-emerald-500 active:scale-95 transition"
+                            >
+                              <Send className="h-3.5 w-3.5" />
+                              <span>WhatsApp</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ================= ABA FRENTES ================= */}
         {activeTab === 'fronts' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
@@ -651,7 +899,12 @@ export default function App() {
                 {fronts.map((front) => (
                   <div
                     key={front.id}
-                    onClick={() => handleEditFront(front)}
+                    onClick={() => {
+                      setEditingFrontId(front.id!);
+                      setFrontName(front.name);
+                      setFrontColor(front.color);
+                      setIsModalOpen(true);
+                    }}
                     className="cursor-pointer flex items-center justify-between rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-3.5 hover:border-zinc-700 transition"
                   >
                     <div className="flex items-center gap-3">
@@ -659,13 +912,6 @@ export default function App() {
                       <span className="text-sm font-medium text-zinc-200">{front.name}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => handleEditFront(front)}
-                        className="p-1.5 text-zinc-500 hover:text-zinc-200 transition"
-                      >
-                        <Edit3 className="h-3.5 w-3.5" />
-                      </button>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -684,6 +930,7 @@ export default function App() {
           </div>
         )}
 
+        {/* ================= ABA IDEIAS ================= */}
         {activeTab === 'ideas' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
@@ -722,48 +969,9 @@ export default function App() {
           </div>
         )}
 
-        {activeTab === 'people' && (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
-              <span>Diretório de Contatos</span>
-              <span className="text-zinc-500">{contacts.length} total</span>
-            </div>
-
-            {contacts.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center text-sm text-zinc-500">
-                Nenhum contato salvo. Toque no "+" para registrar contatos-chave.
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {contacts.map((contact) => (
-                  <div
-                    key={contact.id}
-                    className="flex items-center justify-between rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-3.5"
-                  >
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-sm font-medium text-zinc-200">{contact.name}</span>
-                      {contact.role && (
-                        <span className="text-xs text-zinc-400">{contact.role}</span>
-                      )}
-                      {contact.notes && (
-                        <span className="text-[11px] text-zinc-500 mt-0.5">{contact.notes}</span>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => contact.id && db.contacts.delete(contact.id)}
-                      className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </main>
 
+      {/* Botão Flutuante (+) */}
       <button
         type="button"
         onClick={handleOpenCreateModal}
@@ -773,7 +981,7 @@ export default function App() {
         <Plus className="h-6 w-6 stroke-[2.5]" />
       </button>
 
-      {/* Modal / Gaveta */}
+      {/* Modal / Gaveta de Criação e Edição */}
       {isModalOpen && (
         <div 
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm p-0"
@@ -787,17 +995,19 @@ export default function App() {
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
                 {editingTaskId 
                   ? 'Editar Tarefa'
+                  : editingCollectionId 
+                  ? 'Editar Cobrança'
                   : editingFrontId 
                   ? 'Editar Frente'
-                  : activeTab === 'today' 
-                  ? 'Adicionar ao Dia de Hoje'
+                  : activeTab === 'critical' 
+                  ? 'Nova Tarefa Crítica'
                   : activeTab === 'tasks' 
                   ? 'Nova Tarefa'
+                  : activeTab === 'collections' 
+                  ? 'Nova Cobrança'
                   : activeTab === 'fronts' 
                   ? 'Nova Frente'
-                  : activeTab === 'ideas' 
-                  ? 'Nova Ideia' 
-                  : 'Novo Contato'}
+                  : 'Nova Ideia'}
               </span>
               <button
                 type="button"
@@ -809,7 +1019,7 @@ export default function App() {
             </div>
 
             <form onSubmit={handleSaveItem} className="flex flex-col gap-3">
-              {(activeTab === 'today' || activeTab === 'tasks') && (
+              {(activeTab === 'critical' || activeTab === 'tasks') && (
                 <>
                   <input
                     type="text"
@@ -827,7 +1037,6 @@ export default function App() {
                     className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-xs text-zinc-200 placeholder-zinc-500 outline-none focus:border-zinc-400 resize-none"
                   />
 
-                  {/* Seletor de Criticidade */}
                   <div className="flex flex-col gap-1.5">
                     <label className="text-[10px] uppercase font-semibold text-zinc-500 flex items-center gap-1">
                       <Flame className="h-3 w-3 text-amber-500" /> Grau de Criticidade
@@ -919,6 +1128,64 @@ export default function App() {
                 </>
               )}
 
+              {activeTab === 'collections' && (
+                <>
+                  <input
+                    type="text"
+                    placeholder="Nome da pessoa / contato"
+                    value={colContactName}
+                    onChange={(e) => setColContactName(e.target.value)}
+                    autoFocus
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Celular (ex: 11999998888)"
+                      value={colPhone}
+                      onChange={(e) => setColPhone(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Valor (ex: R$ 500)"
+                      value={colAmount}
+                      onChange={(e) => setColAmount(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                    />
+                  </div>
+
+                  <input
+                    type="text"
+                    placeholder="Motivo da cobrança"
+                    value={colReason}
+                    onChange={(e) => setColReason(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+                  />
+
+                  <textarea
+                    placeholder="Descrição / Detalhes..."
+                    rows={3}
+                    value={colDetails}
+                    onChange={(e) => setColDetails(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-xs text-zinc-200 placeholder-zinc-500 outline-none focus:border-zinc-400 resize-none"
+                  />
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase font-semibold text-zinc-500">Status</label>
+                    <select
+                      value={colStatus}
+                      onChange={(e) => setColStatus(e.target.value as any)}
+                      className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 outline-none [color-scheme:dark]"
+                    >
+                      <option value="pendente">Pendente</option>
+                      <option value="cobrado">Cobrado / Aguardando</option>
+                      <option value="resolvido">Resolvido</option>
+                    </select>
+                  </div>
+                </>
+              )}
+
               {activeTab === 'fronts' && (
                 <>
                   <input
@@ -930,7 +1197,7 @@ export default function App() {
                     className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
                   />
                   <div className="flex items-center gap-2">
-                    <label className="text-xs text-zinc-400">Cor de Identificação:</label>
+                    <label className="text-xs text-zinc-400">Cor:</label>
                     <input
                       type="color"
                       value={frontColor}
@@ -961,65 +1228,82 @@ export default function App() {
                 </>
               )}
 
-              {activeTab === 'people' && (
-                <>
-                  <input
-                    type="text"
-                    placeholder="Nome completo"
-                    value={contactName}
-                    onChange={(e) => setContactName(e.target.value)}
-                    autoFocus
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Cargo ou papel"
-                    value={contactRole}
-                    onChange={(e) => setContactRole(e.target.value)}
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Telefone ou anotações"
-                    value={contactNotes}
-                    onChange={(e) => setContactNotes(e.target.value)}
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
-                  />
-                </>
-              )}
-
               <button
                 type="submit"
                 className="mt-2 w-full rounded-xl bg-zinc-100 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 active:scale-98"
               >
-                {editingTaskId || editingFrontId ? 'Salvar Alterações' : 'Salvar'}
+                {editingTaskId || editingCollectionId || editingFrontId ? 'Salvar Alterações' : 'Salvar'}
               </button>
             </form>
           </div>
         </div>
       )}
 
+      {/* Modal de Emergência de Backup (Texto Puro para Copiar) */}
+      {backupTextModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-950 p-5 shadow-2xl flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-zinc-100">Backup dos Dados</h3>
+              <button onClick={() => setBackupTextModal(null)} className="text-zinc-500 hover:text-zinc-200">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-xs text-zinc-400">
+              O download automático foi bloqueado pelo navegador. Toque abaixo para copiar o texto completo do backup e colar no Bloco de Notas:
+            </p>
+            <textarea
+              readOnly
+              value={backupTextModal}
+              rows={8}
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-900 p-2.5 font-mono text-[10px] text-zinc-300 outline-none"
+            />
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(backupTextModal);
+                alert('Backup copiado para a Área de Transferência!');
+                setBackupTextModal(null);
+              }}
+              className="w-full rounded-xl bg-zinc-100 py-2.5 text-xs font-bold text-zinc-950 transition hover:bg-zinc-200 active:scale-98"
+            >
+              Copiar para Área de Transferência
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Navegação Inferior Fixa */}
       <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-800/80 bg-zinc-950/95 px-3 pt-2 pb-safe backdrop-blur-lg">
         <div className="mx-auto flex max-w-md items-center justify-around">
           <button
             type="button"
-            onClick={() => setActiveTab('today')}
+            onClick={() => setActiveTab('critical')}
             className={`flex flex-col items-center gap-1 p-1 text-[10px] font-medium transition ${
-              activeTab === 'today' ? 'text-zinc-100' : 'text-zinc-500'
+              activeTab === 'critical' ? 'text-rose-400 font-bold' : 'text-zinc-500'
             }`}
           >
-            <Calendar className="h-5 w-5" />
-            Hoje
+            <Zap className="h-5 w-5" />
+            Críticas
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('tasks')}
             className={`flex flex-col items-center gap-1 p-1 text-[10px] font-medium transition ${
-              activeTab === 'tasks' ? 'text-zinc-100' : 'text-zinc-500'
+              activeTab === 'tasks' ? 'text-zinc-100 font-bold' : 'text-zinc-500'
             }`}
           >
             <CheckSquare className="h-5 w-5" />
             Tarefas
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('collections')}
+            className={`flex flex-col items-center gap-1 p-1 text-[10px] font-medium transition ${
+              activeTab === 'collections' ? 'text-emerald-400 font-bold' : 'text-zinc-500'
+            }`}
+          >
+            <PhoneCall className="h-5 w-5" />
+            Cobrança
           </button>
           <button
             type="button"
@@ -1040,16 +1324,6 @@ export default function App() {
           >
             <Lightbulb className="h-5 w-5" />
             Ideias
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('people')}
-            className={`flex flex-col items-center gap-1 p-1 text-[10px] font-medium transition ${
-              activeTab === 'people' ? 'text-zinc-100' : 'text-zinc-500'
-            }`}
-          >
-            <Users className="h-5 w-5" />
-            Contatos
           </button>
         </div>
       </nav>
