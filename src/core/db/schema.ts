@@ -10,6 +10,8 @@ export interface Task {
   completed: boolean;
   dueDate?: string;
   criticality?: CriticalityLevel;
+  pinned?: boolean;
+  order?: number;
   createdAt: string;
 }
 
@@ -60,6 +62,9 @@ export class PersonalDatabase extends Dexie {
     });
     this.version(4).stores({
       collections: '++id, contactName, phone, status, dueDate, createdAt',
+    });
+    this.version(5).stores({
+      tasks: '++id, title, notes, frontId, completed, dueDate, criticality, pinned, order, createdAt',
     });
   }
 }

@@ -14,7 +14,6 @@ import {
   Upload, 
   X, 
   Search, 
-  Edit3, 
   AlertCircle,
   Flame,
   PhoneCall,
@@ -23,7 +22,9 @@ import {
   FileSpreadsheet,
   BadgeAlert,
   Send,
-  Zap
+  Zap,
+  Pin,
+  ArrowUpDown
 } from 'lucide-react';
 
 function addDaysToDate(baseDateStr: string | undefined, daysToAdd: number): string {
@@ -35,6 +36,9 @@ function addDaysToDate(baseDateStr: string | undefined, daysToAdd: number): stri
 export default function App() {
   const [activeTab, setActiveTab] = useState<'critical' | 'tasks' | 'fronts' | 'ideas' | 'collections'>('critical');
   
+  // Ordenação na aba Críticas
+  const [sortBy, setSortBy] = useState<'pinned' | 'criticality' | 'dueDate'>('pinned');
+
   // Modais de Criação / Edição
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
@@ -89,48 +93,43 @@ export default function App() {
       if (existingTasksCount > 0) return;
 
       const fCidadeId = await db.fronts.add({ name: '🎸 Cidade Dormitório', color: '#ec4899' }) as number;
-      const fPetraId = await db.fronts.add({ name: 'Petra', color: '#3b82f6' }) as number;
+      const fPetraId = await db.fronts.add({ name: '🪨 Petra', color: '#3b82f6' }) as number;
       const fAirbnbId = await db.fronts.add({ name: '🏡 Airbnb', color: '#10b981' }) as number;
-      const fPessoalId = await db.fronts.add({ name: 'Pessoal', color: '#f59e0b' }) as number;
+      const fPessoalId = await db.fronts.add({ name: '🙆‍♂️ Pessoal', color: '#f59e0b' }) as number;
 
       const legacyItems: Array<{ title: string; frontId?: number; dueDate?: string; criticality?: CriticalityLevel }> = [
-        { title: 'Hospedagem bananada recibo', frontId: fCidadeId, dueDate: '2026-09-01', criticality: 'baixa' },
-        { title: 'Falar com Rodolfo e clovis leads', frontId: fPetraId, dueDate: '2026-09-01', criticality: 'alta' },
-        { title: 'Acompanhar Meta', frontId: fCidadeId, dueDate: '2026-09-01', criticality: 'media' },
-        { title: 'Arrumar outdoor adezam', frontId: fPetraId, dueDate: '2026-09-01', criticality: 'media' },
-        { title: 'Portabilidade investimento XP', dueDate: '2026-09-01', criticality: 'baixa' },
-        { title: 'Casa natura dia 03', dueDate: '2026-09-03', criticality: 'media' },
-        { title: 'Aumento demanda airbnb', frontId: fAirbnbId, dueDate: '2026-09-06', criticality: 'alta' },
-        { title: 'Finalizar edital', frontId: fCidadeId, criticality: 'alta' },
-        { title: 'Fazer mais folhetos Petra A4', frontId: fPetraId, criticality: 'media' },
-        { title: 'Fazer app to do list', criticality: 'alta' },
-        { title: 'Flavia - Projeto casas Petra', frontId: fPetraId, criticality: 'alta' },
-        { title: 'IBRESP', criticality: 'baixa' },
-        { title: 'Locais ação SJC', frontId: fPetraId, criticality: 'media' },
-        { title: 'Pintura', criticality: 'baixa' },
-        { title: 'Arrumar maquete', frontId: fPetraId, criticality: 'baixa' },
-        { title: 'Planilha orçamento salão', criticality: 'media' },
-        { title: 'Placa administrativo', frontId: fPetraId, criticality: 'baixa' },
-        { title: 'Ajustar layout stand', frontId: fPetraId, criticality: 'alta' },
-        { title: 'Treinar teclado ou jam', frontId: fPessoalId, criticality: 'baixa' },
-        { title: 'Levar urina 24h', frontId: fPessoalId, criticality: 'alta' },
-        { title: 'Enviar nota bigberg', criticality: 'baixa' },
-        { title: 'Melhorar app life logger - colocar alerta', criticality: 'media' },
-        { title: 'Basquete ou corrida ou acad', frontId: fPessoalId, criticality: 'baixa' },
-        { title: 'Cobrar Joilson', frontId: fCidadeId, criticality: 'alta' },
-        { title: 'Feira', frontId: fPessoalId, criticality: 'baixa' },
-        { title: 'Conta de luz Serasa', frontId: fPessoalId, criticality: 'alta' },
-        { title: 'Viagens', criticality: 'baixa' },
-        { title: 'Traking', criticality: 'baixa' },
-        { title: 'Aparecida viagem', criticality: 'baixa' },
-        { title: 'Corrida eu na montanha dia 27 de setembro', frontId: fPetraId, dueDate: '2026-09-27', criticality: 'media' },
-        { title: 'Calculo life logger', frontId: fPessoalId, criticality: 'media' },
-        { title: 'Serassa', frontId: fPessoalId, criticality: 'alta' },
-        { title: 'Documentos creci', frontId: fPessoalId, criticality: 'alta' },
-        { title: 'Folhetos construvale/blacknovember', frontId: fPetraId, criticality: 'media' },
+        { title: 'Comprar creme dermatológico', frontId: fPessoalId, dueDate: '2026-09-17', criticality: 'media' },
+        { title: 'Instalar cesta basquete', frontId: fPessoalId, dueDate: '2026-09-17', criticality: 'media' },
         { title: 'Book construvale/stand 10 unid', criticality: 'media' },
-        { title: 'Fotos mudas/placas evento', frontId: fPetraId, criticality: 'media' },
-        { title: 'Video evento', criticality: 'alta' }
+        { title: 'Folhetos construvale/blacknovember', frontId: fPetraId, criticality: 'media' },
+        { title: 'Documentos creci', frontId: fPessoalId, criticality: 'alta' },
+        { title: 'Serassa', frontId: fPessoalId, criticality: 'alta' },
+        { title: 'Aparecida viagem', frontId: fPessoalId, criticality: 'baixa' },
+        { title: 'Traking', criticality: 'baixa' },
+        { title: 'Viagens', criticality: 'baixa' },
+        { title: 'Conta de luz Serasa', frontId: fPessoalId, criticality: 'alta' },
+        { title: 'Feira', frontId: fPessoalId, criticality: 'baixa' },
+        { title: 'Cobrar Joilson', frontId: fCidadeId, criticality: 'media' },
+        { title: 'Basquete ou corrida ou acad', frontId: fPessoalId, criticality: 'baixa' },
+        { title: 'Melhorar app life logger - colocar alerta', criticality: 'media' },
+        { title: 'Enviar nota bigberg', criticality: 'alta' },
+        { title: 'Levar urina 24h', frontId: fPessoalId, criticality: 'alta' },
+        { title: 'Treinar teclado ou jam', frontId: fPessoalId, criticality: 'media' },
+        { title: 'Ajustar layout stand', frontId: fPetraId, criticality: 'alta' },
+        { title: 'Placa administrativo', frontId: fPetraId, criticality: 'baixa' },
+        { title: 'Planilha orçamento salão', criticality: 'media' },
+        { title: 'Arrumar maquete', frontId: fPetraId, criticality: 'baixa' },
+        { title: 'Fazer uma Pintura', frontId: fPessoalId, criticality: 'baixa' },
+        { title: 'Locais ação SJC', frontId: fPetraId, criticality: 'media' },
+        { title: 'IBRESP', criticality: 'baixa' },
+        { title: 'Flavia - Projeto casas Petra', frontId: fPetraId, criticality: 'alta' },
+        { title: 'Fazer app to do list', criticality: 'alta' },
+        { title: 'Fazer mais folhetos Petra A4', frontId: fPetraId, criticality: 'media' },
+        { title: 'Finalizar edital', frontId: fCidadeId, criticality: 'alta' },
+        { title: 'Aumento demanda airbnb', frontId: fAirbnbId, dueDate: '2026-09-11', criticality: 'alta' },
+        { title: 'Emitir nota casa natura', dueDate: '2026-09-17', criticality: 'alta' },
+        { title: 'Portabilidade investimento XP', dueDate: '2026-09-01', criticality: 'baixa' },
+        { title: 'Arrumar outdoor adezam', dueDate: '2026-09-01', criticality: 'media' }
       ];
 
       for (const item of legacyItems) {
@@ -140,6 +139,7 @@ export default function App() {
           dueDate: item.dueDate,
           criticality: item.criticality || 'media',
           completed: false,
+          pinned: false,
           createdAt: new Date().toISOString()
         });
       }
@@ -215,6 +215,14 @@ export default function App() {
     });
   };
 
+  const handleTogglePin = async (e: React.MouseEvent, task: Task) => {
+    e.stopPropagation();
+    if (!task.id) return;
+    await db.tasks.update(task.id, {
+      pinned: !task.pinned
+    });
+  };
+
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -237,6 +245,7 @@ export default function App() {
           dueDate: taskDate || undefined,
           frontId: taskFrontId ? Number(taskFrontId) : undefined,
           criticality: taskCriticality,
+          pinned: false,
           createdAt: new Date().toISOString(),
         });
       }
@@ -293,7 +302,7 @@ export default function App() {
     await db.tasks.delete(id);
   };
 
-  // Exportar Backup Blindado para Safari iOS e Desktop
+  // Exportar Backup Blindado
   const handleExportData = async () => {
     try {
       const exportTasks = await db.tasks.toArray().catch(() => []);
@@ -302,7 +311,7 @@ export default function App() {
       const exportCollections = db.collections ? await db.collections.toArray().catch(() => []) : [];
 
       const exportData = {
-        version: 4,
+        version: 5,
         exportedAt: new Date().toISOString(),
         tasks: exportTasks,
         fronts: exportFronts,
@@ -312,7 +321,6 @@ export default function App() {
 
       const jsonString = JSON.stringify(exportData, null, 2);
 
-      // Tenta download direto via Blob
       try {
         const blob = new Blob([jsonString], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -331,12 +339,11 @@ export default function App() {
           URL.revokeObjectURL(url);
         }, 800);
       } catch {
-        // Fallback para WebView ou Safari restritivo: modal com texto pronto
         setBackupTextModal(jsonString);
       }
     } catch (err: any) {
       console.error('Erro ao exportar:', err);
-      alert('Não foi possível gerar o arquivo. Tentando copiar para a área de transferência...');
+      alert('Não foi possível gerar o download direto. Copiando para a área de transferência...');
       try {
         const fallbackTasks = await db.tasks.toArray();
         const jsonFallback = JSON.stringify({ tasks: fallbackTasks }, null, 2);
@@ -438,7 +445,7 @@ export default function App() {
     });
   };
 
-  // Aba Críticas: Apenas Tarefas não concluídas que sejam Alta OU com prazo até hoje/atrasadas
+  // Aba Críticas: Tarefas não concluídas que sejam Alta OU com prazo até hoje/atrasadas
   const criticalBaseTasks = tasks.filter(t => 
     !t.completed && (
       t.criticality === 'alta' || 
@@ -448,6 +455,28 @@ export default function App() {
 
   const filteredCriticalTasks = filterTaskList(criticalBaseTasks);
   const filteredAllTasks = filterTaskList(tasks);
+
+  // Ordenação Reativa da Aba Críticas
+  const sortedCriticalTasks = [...filteredCriticalTasks].sort((a, b) => {
+    if (sortBy === 'pinned') {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+    }
+
+    if (sortBy === 'criticality') {
+      const weight = { alta: 3, media: 2, baixa: 1 };
+      const diff = (weight[b.criticality || 'media']) - (weight[a.criticality || 'media']);
+      if (diff !== 0) return diff;
+    }
+
+    if (sortBy === 'dueDate') {
+      if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+      if (a.dueDate && !b.dueDate) return -1;
+      if (!a.dueDate && b.dueDate) return 1;
+    }
+
+    return (b.id || 0) - (a.id || 0);
+  });
 
   const getCriticalityBadge = (level?: CriticalityLevel) => {
     switch (level) {
@@ -473,7 +502,9 @@ export default function App() {
         key={task.id}
         onClick={() => handleEditTask(task)}
         className={`cursor-pointer flex flex-col gap-2 rounded-xl p-3.5 transition active:scale-[0.99] ${
-          isUrgent
+          task.pinned
+            ? 'border-2 border-amber-500/80 bg-amber-950/20 shadow-lg shadow-amber-950/40 ring-1 ring-amber-500/30'
+            : isUrgent
             ? 'border border-rose-500/80 bg-rose-950/20 shadow-lg shadow-rose-950/30 ring-1 ring-rose-500/20'
             : 'border border-zinc-800/70 bg-zinc-900/30 hover:border-zinc-700'
         }`}
@@ -488,13 +519,16 @@ export default function App() {
               {task.completed ? (
                 <CheckCircle2 className="h-5 w-5 text-emerald-500" />
               ) : (
-                <Circle className={`h-5 w-5 ${isUrgent ? 'text-rose-400' : 'text-zinc-600'}`} />
+                <Circle className={`h-5 w-5 ${task.pinned ? 'text-amber-400' : isUrgent ? 'text-rose-400' : 'text-zinc-600'}`} />
               )}
             </button>
             <div className="flex flex-col min-w-0">
-              <span className={`text-sm leading-snug break-words ${task.completed ? 'text-zinc-500 line-through' : isUrgent ? 'text-rose-100 font-semibold' : 'text-zinc-200'}`}>
-                {task.title}
-              </span>
+              <div className="flex items-center gap-1.5">
+                {task.pinned && <span className="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.2 rounded border border-amber-500/30">PIN 📌</span>}
+                <span className={`text-sm leading-snug break-words ${task.completed ? 'text-zinc-500 line-through' : isUrgent ? 'text-rose-100 font-semibold' : 'text-zinc-200'}`}>
+                  {task.title}
+                </span>
+              </div>
               
               <div className="flex flex-wrap items-center gap-1.5 text-[11px] mt-1.5">
                 {getCriticalityBadge(task.criticality)}
@@ -526,6 +560,20 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            {/* Botão de Fixar / Desafixar no Topo */}
+            <button
+              type="button"
+              title={task.pinned ? "Desafixar do topo" : "Fixar no topo"}
+              onClick={(e) => handleTogglePin(e, task)}
+              className={`p-1.5 rounded-lg border transition ${
+                task.pinned
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-200'
+              }`}
+            >
+              <Pin className={`h-3.5 w-3.5 ${task.pinned ? 'fill-amber-400 text-amber-400' : ''}`} />
+            </button>
+
             {!task.completed && (
               <div className="flex items-center gap-0.5 bg-zinc-950/80 border border-zinc-800 rounded-lg p-0.5">
                 <button
@@ -566,7 +614,7 @@ export default function App() {
         </div>
 
         {task.notes && (
-          <div className={`pl-8 pt-1.5 border-t ${isUrgent ? 'border-rose-900/40' : 'border-zinc-800/30'}`}>
+          <div className={`pl-8 pt-1.5 border-t ${task.pinned ? 'border-amber-900/40' : isUrgent ? 'border-rose-900/40' : 'border-zinc-800/30'}`}>
             <p className="text-xs text-zinc-400 whitespace-pre-wrap leading-relaxed">{task.notes}</p>
           </div>
         )}
@@ -721,17 +769,43 @@ export default function App() {
         {/* ================= ABA CRÍTICAS ================= */}
         {activeTab === 'critical' && (
           <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-rose-400">
-              <span className="flex items-center gap-1.5">
+            <div className="flex items-center justify-between text-xs pb-1">
+              <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-rose-400">
                 <BadgeAlert className="h-4 w-4 text-rose-500 animate-pulse" />
-                Foco Crítico & Urgências
-              </span>
-              <span className="rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] text-rose-300 border border-rose-500/30">
-                {filteredCriticalTasks.length} pendentes
-              </span>
+                <span>Foco Crítico ({sortedCriticalTasks.length})</span>
+              </div>
+
+              {/* Seletor Sort By compacto */}
+              <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 text-[10px]">
+                <ArrowUpDown className="h-3 w-3 text-zinc-500 ml-1" />
+                <button
+                  onClick={() => setSortBy('pinned')}
+                  className={`px-1.5 py-0.5 rounded font-medium transition ${
+                    sortBy === 'pinned' ? 'bg-zinc-800 text-zinc-100 font-bold' : 'text-zinc-400'
+                  }`}
+                >
+                  Fixadas 📌
+                </button>
+                <button
+                  onClick={() => setSortBy('criticality')}
+                  className={`px-1.5 py-0.5 rounded font-medium transition ${
+                    sortBy === 'criticality' ? 'bg-zinc-800 text-zinc-100 font-bold' : 'text-zinc-400'
+                  }`}
+                >
+                  Urgência 🔥
+                </button>
+                <button
+                  onClick={() => setSortBy('dueDate')}
+                  className={`px-1.5 py-0.5 rounded font-medium transition ${
+                    sortBy === 'dueDate' ? 'bg-zinc-800 text-zinc-100 font-bold' : 'text-zinc-400'
+                  }`}
+                >
+                  Prazo 📅
+                </button>
+              </div>
             </div>
 
-            {filteredCriticalTasks.length === 0 ? (
+            {sortedCriticalTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center">
                 <CheckCircle2 className="h-8 w-8 text-emerald-500/50 mb-2" />
                 <p className="text-sm font-medium text-zinc-300">Nenhuma tarefa crítica pendente!</p>
@@ -739,7 +813,7 @@ export default function App() {
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                {filteredCriticalTasks.map(renderTaskCard)}
+                {sortedCriticalTasks.map(renderTaskCard)}
               </div>
             )}
           </div>
@@ -1239,7 +1313,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal de Emergência de Backup (Texto Puro para Copiar) */}
+      {/* Modal de Fallback de Backup */}
       {backupTextModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-950 p-5 shadow-2xl flex flex-col gap-3">
