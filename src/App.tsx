@@ -32,7 +32,7 @@ import {
   FileText,
   ChevronLeft,
   ChevronRight,
-  Folder,
+  FolderPlus,
   Lightbulb
 } from 'lucide-react';
 
@@ -43,7 +43,12 @@ function addDaysToDate(baseDateStr: string | undefined, daysToAdd: number): stri
 }
 
 export default function App() {
-  // Navegação: pode ser o ID numérico de uma Frente OU uma das abas utilitárias de topo
+  const fronts = useLiveQuery(() => db.fronts.toArray()) ?? [];
+  const tasks = useLiveQuery(() => db.tasks.reverse().toArray()) ?? [];
+  const ideas = useLiveQuery(() => db.ideas.reverse().toArray()) ?? [];
+  const collections = useLiveQuery(() => db.collections.reverse().toArray()) ?? [];
+
+  // Navegação: ID da Frente (number) OU uma das visões do menu superior
   const [activeView, setActiveView] = useState<number | 'critical' | 'schedule' | 'collections' | 'ideas'>('critical');
 
   // Ordenação na aba Críticas
@@ -55,12 +60,11 @@ export default function App() {
   const [scheduleText, setScheduleText] = useState<string>('');
   const [scheduleSavedFeedback, setScheduleSavedFeedback] = useState(false);
 
-  // Modais de Criação / Edição
+  // Modais
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isNewFrontModalOpen, setIsNewFrontModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
-  const [editingFrontId, setEditingFrontId] = useState<number | null>(null);
   const [editingCollectionId, setEditingCollectionId] = useState<number | null>(null);
-  const [backupTextModal, setBackupTextModal] = useState<string | null>(null);
 
   // Busca e Filtros
   const [searchQuery, setSearchQuery] = useState('');
@@ -72,9 +76,9 @@ export default function App() {
   const [taskDate, setTaskDate] = useState('');
   const [taskCriticality, setTaskCriticality] = useState<CriticalityLevel>('media');
 
-  // Formulário Frentes
-  const [frontName, setFrontName] = useState('');
-  const [frontColor, setFrontColor] = useState('#3b82f6');
+  // Formulário Nova Frente
+  const [newFrontName, setNewFrontName] = useState('');
+  const [newFrontColor, setNewFrontColor] = useState('#3b82f6');
 
   // Formulário Ideias
   const [ideaTitle, setIdeaTitle] = useState('');
@@ -90,28 +94,32 @@ export default function App() {
   const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const tasks = useLiveQuery(() => db.tasks.reverse().toArray()) ?? [];
-  const fronts = useLiveQuery(() => db.fronts.toArray()) ?? [];
-  const ideas = useLiveQuery(() => db.ideas.reverse().toArray()) ?? [];
-  const collections = useLiveQuery(() => db.collections.reverse().toArray()) ?? [];
-
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // Sincroniza o texto da Agenda ao trocar de mês
+  // Garante que as 4 frentes padrão sempre existam no banco local
+  useEffect(() => {
+    const ensureDefaultFronts = async () => {
+      const count = await db.fronts.count().catch(() => 0);
+      if (count === 0) {
+        await db.fronts.bulkAdd([
+          { name: '🎸 Cidade Dormitório', color: '#ec4899' },
+          { name: '🪨 Petra', color: '#3b82f6' },
+          { name: '🏡 Airbnb', color: '#10b981' },
+          { name: '🙆‍♂️ Pessoal', color: '#f59e0b' }
+        ]);
+      }
+    };
+    ensureDefaultFronts();
+  }, []);
+
+  // Sincroniza texto da agenda ao trocar de mês
   useEffect(() => {
     let isMounted = true;
     db.schedules.where('monthKey').equals(selectedMonth).first().then((record) => {
-      if (isMounted) {
-        setScheduleText(record ? record.rawText : '');
-      }
+      if (isMounted) setScheduleText(record ? record.rawText : '');
     });
     return () => { isMounted = false; };
   }, [selectedMonth]);
-
-  const handleScheduleChange = (text: string) => {
-    setScheduleText(text);
-  };
 
   const handleSaveSchedule = async () => {
     const existing = await db.schedules.where('monthKey').equals(selectedMonth).first();
@@ -139,17 +147,13 @@ export default function App() {
     setSelectedMonth(`${newYear}-${newMonth}`);
   };
 
-  // Abre o modal atribuindo automaticamente a Frente ativa atual
   const handleOpenCreateModal = () => {
     setEditingTaskId(null);
-    setEditingFrontId(null);
     setEditingCollectionId(null);
     setTaskTitle('');
     setTaskNotes('');
     setTaskCriticality(activeView === 'critical' ? 'alta' : 'media');
     setTaskDate(activeView === 'critical' ? todayStr : '');
-    setFrontName('');
-    setFrontColor('#3b82f6');
     setIdeaTitle('');
     setIdeaContent('');
     setColContactName('');
@@ -197,15 +201,25 @@ export default function App() {
     await db.tasks.update(task.id, { pinned: !task.pinned });
   };
 
+  const handleCreateNewFront = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFrontName.trim()) return;
+    const newId = await db.fronts.add({
+      name: newFrontName.trim(),
+      color: newFrontColor
+    }) as number;
+    setNewFrontName('');
+    setIsNewFrontModalOpen(false);
+    setActiveView(newId);
+  };
+
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
-
     const isInsideFront = typeof activeView === 'number';
 
     if (activeView === 'critical' || isInsideFront) {
       if (!taskTitle.trim()) return;
 
-      // Se estiver em uma frente, atribui o frontId automaticamente sem perguntar
       const targetFrontId = isInsideFront ? activeView : undefined;
 
       if (editingTaskId) {
@@ -227,9 +241,6 @@ export default function App() {
           createdAt: new Date().toISOString(),
         });
       }
-    } else if (editingFrontId) {
-      if (!frontName.trim()) return;
-      await db.fronts.update(editingFrontId, { name: frontName.trim(), color: frontColor });
     } else if (activeView === 'ideas') {
       if (!ideaTitle.trim()) return;
       await db.ideas.add({
@@ -276,6 +287,7 @@ export default function App() {
     await db.tasks.delete(id);
   };
 
+  // Exportar Backup JSON
   const handleExportData = async () => {
     try {
       const exportTasks = await db.tasks.toArray().catch(() => []);
@@ -312,10 +324,11 @@ export default function App() {
         URL.revokeObjectURL(url);
       }, 800);
     } catch {
-      alert('Falha ao exportar backup diretamente.');
+      alert('Falha ao exportar backup.');
     }
   };
 
+  // Importar Backup JSON
   const handleImportData = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -324,13 +337,13 @@ export default function App() {
     reader.onload = async (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
-        if (confirm('Deseja restaurar este backup?')) {
-          if (json.tasks?.length) await db.tasks.bulkPut(json.tasks);
+        if (confirm('Deseja restaurar este backup? Suas informações serão carregadas.')) {
           if (json.fronts?.length) await db.fronts.bulkPut(json.fronts);
+          if (json.tasks?.length) await db.tasks.bulkPut(json.tasks);
           if (json.ideas?.length) await db.ideas.bulkPut(json.ideas);
           if (json.collections?.length) await db.collections.bulkPut(json.collections);
           if (json.schedules?.length) await db.schedules.bulkPut(json.schedules);
-          alert('Dados sincronizados com sucesso!');
+          alert('Dados restaurados com sucesso!');
         }
       } catch {
         alert('Arquivo de backup inválido.');
@@ -340,6 +353,7 @@ export default function App() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // Exportar CSV Cobranças
   const handleExportCollectionsCSV = () => {
     if (collections.length === 0) {
       alert('Nenhuma cobrança registrada.');
@@ -428,7 +442,7 @@ export default function App() {
     return (b.id || 0) - (a.id || 0);
   });
 
-  // 2. Tarefas da Frente Selecionada
+  // 2. Tarefas da Frente Ativa
   const isFrontActive = typeof activeView === 'number';
   const currentFront = fronts.find(f => f.id === activeView);
   const currentFrontTasks = isFrontActive ? tasks.filter(t => t.frontId === activeView) : [];
@@ -503,7 +517,6 @@ export default function App() {
                     {isDueToday && <span className="font-bold">Hoje</span>}
                   </span>
                 )}
-                {/* Mostra a tag de frente apenas se estiver na aba Críticas */}
                 {front && activeView === 'critical' && (
                   <span 
                     className="px-1.5 py-0.5 rounded text-[10px] font-medium"
@@ -594,7 +607,7 @@ export default function App() {
             )}
           </div>
 
-          {/* Abas Globais no Topo Direito (Críticas, Agenda, Cobrança, Ideias) */}
+          {/* Abas de Apoio no Topo Direito (Críticas, Agenda, Cobrança, Ideias + Importar/Exportar) */}
           <div className="flex items-center gap-1 bg-zinc-900/90 border border-zinc-800 rounded-xl p-1">
             <button
               type="button"
@@ -639,6 +652,24 @@ export default function App() {
 
             <div className="h-4 w-[1px] bg-zinc-800 mx-0.5" />
 
+            {/* Botão de Importar Arquivo JSON */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              title="Restaurar Backup (Importar JSON)"
+              className="p-1.5 text-zinc-400 hover:text-zinc-200 transition"
+            >
+              <Upload className="h-4 w-4"/>
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleImportData}
+              accept=".json"
+              className="hidden"
+            />
+
+            {/* Botão de Exportar */}
             {activeView === 'collections' ? (
               <button
                 onClick={handleExportCollectionsCSV}
@@ -659,7 +690,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Lupa de busca rápida (em Críticas ou Frentes) */}
+        {/* Lupa de busca rápida */}
         {(activeView === 'critical' || isFrontActive) && (
           <div className="mx-auto max-w-md mt-3 relative flex items-center">
             <Search className="absolute left-3 h-4 w-4 text-zinc-500"/>
@@ -741,7 +772,7 @@ export default function App() {
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
               <span className="flex items-center gap-1.5" style={{ color: currentFront?.color }}>
-                <Folder className="h-3.5 w-3.5"/>
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: currentFront?.color }} />
                 {currentFront?.name}
               </span>
               <span className="text-zinc-500">{filteredFrontTasks.length} tarefas</span>
@@ -811,7 +842,7 @@ export default function App() {
             <div className="flex flex-col rounded-2xl border border-zinc-800 bg-zinc-900/40 p-3 shadow-inner">
               <textarea
                 value={scheduleText}
-                onChange={(e) => handleScheduleChange(e.target.value)}
+                onChange={(e) => setScheduleText(e.target.value)}
                 onBlur={handleSaveSchedule}
                 placeholder={`Cole aqui compromissos do mês em bullet points (Ctrl+C e Ctrl+V):\n\n• 05/10 - Reunião fornecedor 14h\n• 12/10 - Alinhamento stand Petra\n• 19/10 - Check-in Airbnb às 11h\n• 25/10 - Ensaio Cidade Dormitório`}
                 rows={16}
@@ -980,14 +1011,14 @@ export default function App() {
         <button
           type="button"
           onClick={handleOpenCreateModal}
-          className="fixed bottom-20 right-5 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 text-zinc-950 shadow-lg shadow-black/50 transition active:scale-90"
+          className="fixed bottom-16 right-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 text-zinc-950 shadow-lg shadow-black/50 transition active:scale-90"
           title="Adicionar"
         >
           <Plus className="h-6 w-6 stroke-[2.5]"/>
         </button>
       )}
 
-      {/* Modal de Criação / Edição */}
+      {/* Modal Tarefa / Cobrança / Ideia */}
       {isModalOpen && (
         <div 
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm p-0"
@@ -1200,47 +1231,103 @@ export default function App() {
                 type="submit"
                 className="mt-2 w-full rounded-xl bg-zinc-100 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 active:scale-98"
               >
-                {editingTaskId || editingCollectionId || editingFrontId ? 'Salvar Alterações' : 'Salvar'}
+                {editingTaskId || editingCollectionId ? 'Salvar Alterações' : 'Salvar'}
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* Barra Inferior Fixa dedicada 100% às FRENTES */}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-800/80 bg-zinc-950/95 px-2 pt-2 pb-safe backdrop-blur-lg">
-        <div className="mx-auto flex max-w-md items-center justify-around gap-1 overflow-x-auto no-scrollbar">
+      {/* Modal Criar Nova Frente */}
+      {isNewFrontModalOpen && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setIsNewFrontModalOpen(false)}
+        >
+          <div 
+            className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-950 p-5 shadow-2xl flex flex-col gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-zinc-100">Nova Frente (Aba)</h3>
+              <button onClick={() => setIsNewFrontModalOpen(false)} className="text-zinc-500 hover:text-zinc-200">
+                <X className="h-5 w-5"/>
+              </button>
+            </div>
+            <form onSubmit={handleCreateNewFront} className="flex flex-col gap-3">
+              <input
+                type="text"
+                placeholder="Nome da frente (ex: 🚀 Startup, Casa)"
+                value={newFrontName}
+                onChange={(e) => setNewFrontName(e.target.value)}
+                autoFocus
+                className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-400">Cor da aba:</span>
+                <input
+                  type="color"
+                  value={newFrontColor}
+                  onChange={(e) => setNewFrontColor(e.target.value)}
+                  className="h-8 w-12 rounded-lg border border-zinc-700 bg-zinc-900 p-0.5 cursor-pointer"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full rounded-xl bg-zinc-100 py-2.5 text-xs font-bold text-zinc-950 transition hover:bg-zinc-200 active:scale-98"
+              >
+                Criar Aba de Frente
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* BARRA INFERIOR: ABAS DE EXCEL DEDICADAS ÀS FRENTES */}
+      <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-800 bg-zinc-950/98 px-2 pt-1.5 pb-safe backdrop-blur-lg">
+        <div className="mx-auto flex max-w-md items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
           {fronts.map((front) => {
             const isSelected = activeView === front.id;
             const count = tasks.filter(t => t.frontId === front.id && !t.completed).length;
+
             return (
               <button
                 key={front.id}
                 type="button"
                 onClick={() => setActiveView(front.id as number)}
-                className={`flex flex-1 flex-col items-center justify-center gap-1 py-1 px-1 rounded-xl transition ${
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-t-lg border-t-2 text-xs whitespace-nowrap transition shrink-0 ${
                   isSelected 
-                    ? 'bg-zinc-900 text-zinc-100 font-bold border border-zinc-800' 
-                    : 'text-zinc-500 hover:text-zinc-300'
+                    ? 'bg-zinc-900 text-zinc-100 font-bold border-zinc-100 shadow-sm' 
+                    : 'bg-zinc-950 text-zinc-400 border-transparent hover:text-zinc-200 hover:bg-zinc-900/40'
                 }`}
+                style={{ borderTopColor: isSelected ? front.color : 'transparent' }}
               >
-                <div className="relative flex items-center justify-center">
-                  <span 
-                    className="h-2.5 w-2.5 rounded-full" 
-                    style={{ backgroundColor: front.color }}
-                  />
-                  {count > 0 && (
-                    <span className="absolute -top-1.5 -right-3 px-1 py-0.2 bg-zinc-800 text-[9px] font-mono text-zinc-300 rounded-full border border-zinc-700">
-                      {count}
-                    </span>
-                  )}
-                </div>
-                <span className="text-[11px] truncate max-w-[70px]">
-                  {front.name.replace(/^[^\w\s]+/, '').trim() || front.name}
-                </span>
+                <span 
+                  className="h-2 w-2 rounded-full shrink-0" 
+                  style={{ backgroundColor: front.color }}
+                />
+                <span>{front.name}</span>
+                {count > 0 && (
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                    isSelected ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-900 text-zinc-500'
+                  }`}>
+                    {count}
+                  </span>
+                )}
               </button>
             );
           })}
+
+          {/* Botão + para adicionar nova aba de frente */}
+          <button
+            type="button"
+            onClick={() => setIsNewFrontModalOpen(true)}
+            title="Criar nova frente"
+            className="flex items-center gap-1 px-2.5 py-2 rounded-t-lg text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50 transition shrink-0 border-t-2 border-transparent"
+          >
+            <FolderPlus className="h-3.5 w-3.5"/>
+            <span>Nova</span>
+          </button>
         </div>
       </nav>
     </div>
