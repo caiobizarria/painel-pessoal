@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Task, type Front, type DebtCollection, type CriticalityLevel } from './core/db/schema';
+import { 
+  db, 
+  type Task, 
+  type Front, 
+  type DebtCollection, 
+  type CriticalityLevel 
+} from './core/db/schema';
 import { 
   CheckCircle2, 
   Circle, 
@@ -9,7 +15,6 @@ import {
   Trash2, 
   FolderKanban, 
   Lightbulb, 
-  CheckSquare, 
   Download, 
   Upload, 
   X, 
@@ -24,7 +29,11 @@ import {
   Send,
   Zap,
   Pin,
-  ArrowUpDown
+  ArrowUpDown,
+  CalendarDays,
+  FileText,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 function addDaysToDate(baseDateStr: string | undefined, daysToAdd: number): string {
@@ -34,23 +43,29 @@ function addDaysToDate(baseDateStr: string | undefined, daysToAdd: number): stri
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'critical' | 'tasks' | 'fronts' | 'ideas' | 'collections'>('critical');
+  const [activeTab, setActiveTab] = useState<'critical' | 'fronts' | 'schedule' | 'collections' | 'ideas'>('critical');
   
+  // Controle de Frente Ativa
+  const [activeFrontId, setActiveFrontId] = useState<number | null>(null);
+
   // Ordenação na aba Críticas
   const [sortBy, setSortBy] = useState<'pinned' | 'criticality' | 'dueDate'>('pinned');
+
+  // Mês Selecionado para a Agenda (YYYY-MM)
+  const currentMonthKey = new Date().toISOString().slice(0, 7);
+  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
+  const [scheduleText, setScheduleText] = useState<string>('');
+  const [scheduleSavedFeedback, setScheduleSavedFeedback] = useState(false);
 
   // Modais de Criação / Edição
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editingFrontId, setEditingFrontId] = useState<number | null>(null);
   const [editingCollectionId, setEditingCollectionId] = useState<number | null>(null);
-
-  // Modal de Backup / Fallback
   const [backupTextModal, setBackupTextModal] = useState<string | null>(null);
 
   // Busca e Filtros
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFrontFilter, setSelectedFrontFilter] = useState<number | 'all'>('all');
   const [selectedCriticalityFilter, setSelectedCriticalityFilter] = useState<CriticalityLevel | 'all'>('all');
 
   // Formulário Tarefa
@@ -86,77 +101,53 @@ export default function App() {
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // Seed de tarefas legadas (apenas se o banco estiver vazio)
+  // Sincroniza o texto da Agenda ao trocar de mês
   useEffect(() => {
-    const seedLegacyData = async () => {
-      const existingTasksCount = await db.tasks.count().catch(() => 0);
-      if (existingTasksCount > 0) return;
-
-      const fCidadeId = await db.fronts.add({ name: '🎸 Cidade Dormitório', color: '#ec4899' }) as number;
-      const fPetraId = await db.fronts.add({ name: '🪨 Petra', color: '#3b82f6' }) as number;
-      const fAirbnbId = await db.fronts.add({ name: '🏡 Airbnb', color: '#10b981' }) as number;
-      const fPessoalId = await db.fronts.add({ name: '🙆‍♂️ Pessoal', color: '#f59e0b' }) as number;
-
-      const legacyItems: Array<{ title: string; frontId?: number; dueDate?: string; criticality?: CriticalityLevel }> = [
-        { title: 'Comprar creme dermatológico', frontId: fPessoalId, dueDate: '2026-09-17', criticality: 'media' },
-        { title: 'Instalar cesta basquete', frontId: fPessoalId, dueDate: '2026-09-17', criticality: 'media' },
-        { title: 'Book construvale/stand 10 unid', criticality: 'media' },
-        { title: 'Folhetos construvale/blacknovember', frontId: fPetraId, criticality: 'media' },
-        { title: 'Documentos creci', frontId: fPessoalId, criticality: 'alta' },
-        { title: 'Serassa', frontId: fPessoalId, criticality: 'alta' },
-        { title: 'Aparecida viagem', frontId: fPessoalId, criticality: 'baixa' },
-        { title: 'Traking', criticality: 'baixa' },
-        { title: 'Viagens', criticality: 'baixa' },
-        { title: 'Conta de luz Serasa', frontId: fPessoalId, criticality: 'alta' },
-        { title: 'Feira', frontId: fPessoalId, criticality: 'baixa' },
-        { title: 'Cobrar Joilson', frontId: fCidadeId, criticality: 'media' },
-        { title: 'Basquete ou corrida ou acad', frontId: fPessoalId, criticality: 'baixa' },
-        { title: 'Melhorar app life logger - colocar alerta', criticality: 'media' },
-        { title: 'Enviar nota bigberg', criticality: 'alta' },
-        { title: 'Levar urina 24h', frontId: fPessoalId, criticality: 'alta' },
-        { title: 'Treinar teclado ou jam', frontId: fPessoalId, criticality: 'media' },
-        { title: 'Ajustar layout stand', frontId: fPetraId, criticality: 'alta' },
-        { title: 'Placa administrativo', frontId: fPetraId, criticality: 'baixa' },
-        { title: 'Planilha orçamento salão', criticality: 'media' },
-        { title: 'Arrumar maquete', frontId: fPetraId, criticality: 'baixa' },
-        { title: 'Fazer uma Pintura', frontId: fPessoalId, criticality: 'baixa' },
-        { title: 'Locais ação SJC', frontId: fPetraId, criticality: 'media' },
-        { title: 'IBRESP', criticality: 'baixa' },
-        { title: 'Flavia - Projeto casas Petra', frontId: fPetraId, criticality: 'alta' },
-        { title: 'Fazer app to do list', criticality: 'alta' },
-        { title: 'Fazer mais folhetos Petra A4', frontId: fPetraId, criticality: 'media' },
-        { title: 'Finalizar edital', frontId: fCidadeId, criticality: 'alta' },
-        { title: 'Aumento demanda airbnb', frontId: fAirbnbId, dueDate: '2026-09-11', criticality: 'alta' },
-        { title: 'Emitir nota casa natura', dueDate: '2026-09-17', criticality: 'alta' },
-        { title: 'Portabilidade investimento XP', dueDate: '2026-09-01', criticality: 'baixa' },
-        { title: 'Arrumar outdoor adezam', dueDate: '2026-09-01', criticality: 'media' }
-      ];
-
-      for (const item of legacyItems) {
-        await db.tasks.add({
-          title: item.title,
-          frontId: item.frontId,
-          dueDate: item.dueDate,
-          criticality: item.criticality || 'media',
-          completed: false,
-          pinned: false,
-          createdAt: new Date().toISOString()
-        });
+    let isMounted = true;
+    db.schedules.where('monthKey').equals(selectedMonth).first().then((record) => {
+      if (isMounted) {
+        setScheduleText(record ? record.rawText : '');
       }
+    });
+    return () => { isMounted = false; };
+  }, [selectedMonth]);
 
-      await db.collections.add({
-        contactName: 'Joilson',
-        phone: '11999999999',
-        reason: 'Cobrar cachê e acerto show',
-        details: 'Verificar comprovante pendente da apresentação de setembro.',
-        amount: 'R$ 1.500,00',
-        status: 'pendente',
-        createdAt: new Date().toISOString()
+  // Define a primeira frente como ativa caso nenhuma esteja selecionada
+  useEffect(() => {
+    if (fronts.length > 0 && activeFrontId === null) {
+      setActiveFrontId(fronts[0].id || null);
+    }
+  }, [fronts, activeFrontId]);
+
+  const handleScheduleChange = (text: string) => {
+    setScheduleText(text);
+  };
+
+  const handleSaveSchedule = async () => {
+    const existing = await db.schedules.where('monthKey').equals(selectedMonth).first();
+    if (existing && existing.id) {
+      await db.schedules.update(existing.id, {
+        rawText: scheduleText,
+        updatedAt: new Date().toISOString()
       });
-    };
+    } else {
+      await db.schedules.add({
+        monthKey: selectedMonth,
+        rawText: scheduleText,
+        updatedAt: new Date().toISOString()
+      });
+    }
+    setScheduleSavedFeedback(true);
+    setTimeout(() => setScheduleSavedFeedback(false), 2000);
+  };
 
-    seedLegacyData();
-  }, []);
+  const handleMonthStep = (step: number) => {
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const date = new Date(year, month - 1 + step, 1);
+    const newYear = date.getFullYear();
+    const newMonth = String(date.getMonth() + 1).padStart(2, '0');
+    setSelectedMonth(`${newYear}-${newMonth}`);
+  };
 
   const handleOpenCreateModal = () => {
     setEditingTaskId(null);
@@ -166,7 +157,7 @@ export default function App() {
     setTaskNotes('');
     setTaskCriticality(activeTab === 'critical' ? 'alta' : 'media');
     setTaskDate(activeTab === 'critical' ? todayStr : '');
-    setTaskFrontId('');
+    setTaskFrontId(activeTab === 'fronts' && activeFrontId ? String(activeFrontId) : '');
     setFrontName('');
     setFrontColor('#3b82f6');
     setIdeaTitle('');
@@ -226,15 +217,19 @@ export default function App() {
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (activeTab === 'critical' || activeTab === 'tasks') {
+    if (activeTab === 'critical' || activeTab === 'fronts') {
       if (!taskTitle.trim()) return;
+
+      const resolvedFrontId = taskFrontId 
+        ? Number(taskFrontId) 
+        : (activeTab === 'fronts' && activeFrontId ? activeFrontId : undefined);
 
       if (editingTaskId) {
         await db.tasks.update(editingTaskId, {
           title: taskTitle.trim(),
           notes: taskNotes.trim() || undefined,
           dueDate: taskDate || undefined,
-          frontId: taskFrontId ? Number(taskFrontId) : undefined,
+          frontId: resolvedFrontId,
           criticality: taskCriticality,
         });
       } else {
@@ -243,19 +238,15 @@ export default function App() {
           notes: taskNotes.trim() || undefined,
           completed: false,
           dueDate: taskDate || undefined,
-          frontId: taskFrontId ? Number(taskFrontId) : undefined,
+          frontId: resolvedFrontId,
           criticality: taskCriticality,
           pinned: false,
           createdAt: new Date().toISOString(),
         });
       }
-    } else if (activeTab === 'fronts') {
+    } else if (editingFrontId) {
       if (!frontName.trim()) return;
-      if (editingFrontId) {
-        await db.fronts.update(editingFrontId, { name: frontName.trim(), color: frontColor });
-      } else {
-        await db.fronts.add({ name: frontName.trim(), color: frontColor });
-      }
+      await db.fronts.update(editingFrontId, { name: frontName.trim(), color: frontColor });
     } else if (activeTab === 'ideas') {
       if (!ideaTitle.trim()) return;
       await db.ideas.add({
@@ -302,21 +293,22 @@ export default function App() {
     await db.tasks.delete(id);
   };
 
-  // Exportar Backup Blindado
   const handleExportData = async () => {
     try {
       const exportTasks = await db.tasks.toArray().catch(() => []);
       const exportFronts = await db.fronts.toArray().catch(() => []);
       const exportIdeas = await db.ideas.toArray().catch(() => []);
       const exportCollections = db.collections ? await db.collections.toArray().catch(() => []) : [];
+      const exportSchedules = db.schedules ? await db.schedules.toArray().catch(() => []) : [];
 
       const exportData = {
-        version: 5,
+        version: 6,
         exportedAt: new Date().toISOString(),
         tasks: exportTasks,
         fronts: exportFronts,
         ideas: exportIdeas,
         collections: exportCollections,
+        schedules: exportSchedules,
       };
 
       const jsonString = JSON.stringify(exportData, null, 2);
@@ -343,19 +335,17 @@ export default function App() {
       }
     } catch (err: any) {
       console.error('Erro ao exportar:', err);
-      alert('Não foi possível gerar o download direto. Copiando para a área de transferência...');
       try {
         const fallbackTasks = await db.tasks.toArray();
         const jsonFallback = JSON.stringify({ tasks: fallbackTasks }, null, 2);
         await navigator.clipboard.writeText(jsonFallback);
-        alert('Backup copiado para a Área de Transferência com sucesso!');
+        alert('Backup copiado para a Área de Transferência!');
       } catch {
         alert('Falha ao exportar dados.');
       }
     }
   };
 
-  // Importar Backup
   const handleImportData = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -369,6 +359,7 @@ export default function App() {
           if (json.fronts?.length) await db.fronts.bulkPut(json.fronts);
           if (json.ideas?.length) await db.ideas.bulkPut(json.ideas);
           if (json.collections?.length) await db.collections.bulkPut(json.collections);
+          if (json.schedules?.length) await db.schedules.bulkPut(json.schedules);
           alert('Dados sincronizados com sucesso!');
         }
       } catch {
@@ -379,7 +370,6 @@ export default function App() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Exportar Planilha CSV para Cobranças
   const handleExportCollectionsCSV = () => {
     if (collections.length === 0) {
       alert('Nenhuma cobrança registrada para exportar.');
@@ -426,8 +416,7 @@ export default function App() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // Filtro de Tarefas
-  const filterTaskList = (list: Task[]) => {
+  const filterList = (list: Task[]) => {
     const q = searchQuery.toLowerCase().trim();
     return list.filter((task) => {
       const taskCrit = task.criticality ? task.criticality.toLowerCase() : '';
@@ -438,50 +427,47 @@ export default function App() {
         taskCrit.includes(q) ||
         (q === 'média' && taskCrit === 'media');
       
-      const matchesFront = selectedFrontFilter === 'all' || task.frontId === selectedFrontFilter;
       const matchesCriticality = selectedCriticalityFilter === 'all' || task.criticality === selectedCriticalityFilter;
-
-      return matchesSearch && matchesFront && matchesCriticality;
+      return matchesSearch && matchesCriticality;
     });
   };
 
-  // Aba Críticas: Tarefas não concluídas que sejam Alta OU com prazo até hoje/atrasadas
+  // Aba Críticas
   const criticalBaseTasks = tasks.filter(t => 
     !t.completed && (
       t.criticality === 'alta' || 
       (t.dueDate && t.dueDate <= todayStr)
     )
   );
+  const filteredCriticalTasks = filterList(criticalBaseTasks);
 
-  const filteredCriticalTasks = filterTaskList(criticalBaseTasks);
-  const filteredAllTasks = filterTaskList(tasks);
-
-  // Ordenação Reativa da Aba Críticas
   const sortedCriticalTasks = [...filteredCriticalTasks].sort((a, b) => {
     if (sortBy === 'pinned') {
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
     }
-
     if (sortBy === 'criticality') {
       const weight = { alta: 3, media: 2, baixa: 1 };
       const diff = (weight[b.criticality || 'media']) - (weight[a.criticality || 'media']);
       if (diff !== 0) return diff;
     }
-
     if (sortBy === 'dueDate') {
       if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
       if (a.dueDate && !b.dueDate) return -1;
       if (!a.dueDate && b.dueDate) return 1;
     }
-
     return (b.id || 0) - (a.id || 0);
   });
+
+  // Aba Frentes (exclusiva)
+  const activeFront = fronts.find(f => f.id === activeFrontId);
+  const frontTasks = tasks.filter(t => t.frontId === activeFrontId);
+  const filteredFrontTasks = filterList(frontTasks);
 
   const getCriticalityBadge = (level?: CriticalityLevel) => {
     switch (level) {
       case 'alta':
-        return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-0.5"><Flame className="h-3 w-3 text-rose-400" /> Alta</span>;
+        return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-0.5"><Flame className="h-3 w-3 text-rose-400"/> Alta</span>;
       case 'baixa':
         return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-800/80 text-zinc-400 border border-zinc-700/50">Baixa</span>;
       case 'media':
@@ -503,7 +489,7 @@ export default function App() {
         onClick={() => handleEditTask(task)}
         className={`cursor-pointer flex flex-col gap-2 rounded-xl p-3.5 transition active:scale-[0.99] ${
           task.pinned
-            ? 'border-2 border-amber-500/80 bg-amber-950/20 shadow-lg shadow-amber-950/40 ring-1 ring-amber-500/30'
+            ? 'border-2 border-amber-500/80 bg-amber-950/20 shadow-lg shadow-amber-950/40'
             : isUrgent
             ? 'border border-rose-500/80 bg-rose-950/20 shadow-lg shadow-rose-950/30 ring-1 ring-rose-500/20'
             : 'border border-zinc-800/70 bg-zinc-900/30 hover:border-zinc-700'
@@ -517,9 +503,9 @@ export default function App() {
               className="shrink-0 pt-0.5"
             >
               {task.completed ? (
-                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                <CheckCircle2 className="h-5 w-5 text-emerald-500"/>
               ) : (
-                <Circle className={`h-5 w-5 ${task.pinned ? 'text-amber-400' : isUrgent ? 'text-rose-400' : 'text-zinc-600'}`} />
+                <Circle className={`h-5 w-5 ${task.pinned ? 'text-amber-400' : isUrgent ? 'text-rose-400' : 'text-zinc-600'}`}/>
               )}
             </button>
             <div className="flex flex-col min-w-0">
@@ -540,8 +526,8 @@ export default function App() {
                       ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' 
                       : 'text-zinc-400'
                   }`}>
-                    {isOverdue && <AlertCircle className="h-3 w-3 text-rose-300" />}
-                    <Calendar className="h-3 w-3" />
+                    {isOverdue && <AlertCircle className="h-3 w-3 text-rose-300"/>}
+                    <Calendar className="h-3 w-3"/>
                     <span>{task.dueDate}</span>
                     {isOverdue && <span>(Atrasada!)</span>}
                     {isDueToday && <span className="font-bold">Hoje</span>}
@@ -560,7 +546,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
-            {/* Botão de Fixar / Desafixar no Topo */}
             <button
               type="button"
               title={task.pinned ? "Desafixar do topo" : "Fixar no topo"}
@@ -571,7 +556,7 @@ export default function App() {
                   : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-200'
               }`}
             >
-              <Pin className={`h-3.5 w-3.5 ${task.pinned ? 'fill-amber-400 text-amber-400' : ''}`} />
+              <Pin className={`h-3.5 w-3.5 ${task.pinned ? 'fill-amber-400 text-amber-400' : ''}`}/>
             </button>
 
             {!task.completed && (
@@ -608,7 +593,7 @@ export default function App() {
               className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
               title="Excluir"
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="h-4 w-4"/>
             </button>
           </div>
         </div>
@@ -630,10 +615,10 @@ export default function App() {
             <h1 className="text-base font-semibold tracking-tight text-zinc-100">Painel Pessoal</h1>
             <span className="rounded-full bg-zinc-800/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
               {activeTab === 'critical' && 'Críticas'}
-              {activeTab === 'tasks' && 'Todas Tarefas'}
-              {activeTab === 'fronts' && 'Frentes'}
-              {activeTab === 'ideas' && 'Ideias'}
+              {activeTab === 'fronts' && (activeFront ? activeFront.name : 'Frentes')}
+              {activeTab === 'schedule' && 'Agenda Mensal'}
               {activeTab === 'collections' && 'Cobrança'}
+              {activeTab === 'ideas' && 'Ideias'}
             </span>
           </div>
 
@@ -644,17 +629,17 @@ export default function App() {
                 title="Exportar Cobranças em Planilha Excel/CSV"
                 className="flex items-center gap-1 rounded-lg border border-emerald-800/60 bg-emerald-950/50 px-2.5 py-1 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-900 active:scale-95"
               >
-                <FileSpreadsheet className="h-3.5 w-3.5" />
+                <FileSpreadsheet className="h-3.5 w-3.5"/>
                 <span>Planilha</span>
               </button>
             ) : (
               <>
                 <button
                   onClick={handleExportData}
-                  title="Exportar Backup Geral com Segurança"
+                  title="Exportar Backup Geral"
                   className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 active:scale-95"
                 >
-                  <Download className="h-3.5 w-3.5" />
+                  <Download className="h-3.5 w-3.5"/>
                   <span>Exportar</span>
                 </button>
                 <button
@@ -662,7 +647,7 @@ export default function App() {
                   title="Restaurar Backup"
                   className="p-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200 transition active:scale-95"
                 >
-                  <Upload className="h-3.5 w-3.5" />
+                  <Upload className="h-3.5 w-3.5"/>
                 </button>
                 <input
                   type="file"
@@ -676,14 +661,14 @@ export default function App() {
           </div>
         </div>
 
-        {/* Lupa e Filtros */}
-        {(activeTab === 'critical' || activeTab === 'tasks') && (
+        {/* Lupa e Filtros em Críticas e Frentes */}
+        {(activeTab === 'critical' || activeTab === 'fronts') && (
           <div className="mx-auto max-w-md mt-3 flex flex-col gap-2">
             <div className="relative flex items-center">
-              <Search className="absolute left-3 h-4 w-4 text-zinc-500" />
+              <Search className="absolute left-3 h-4 w-4 text-zinc-500"/>
               <input
                 type="text"
-                placeholder={activeTab === 'critical' ? "Buscar nas críticas..." : "Buscar todas as tarefas..."}
+                placeholder={activeTab === 'critical' ? "Buscar nas críticas..." : `Buscar em ${activeFront ? activeFront.name : 'tarefas'}...`}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-xl border border-zinc-800 bg-zinc-900/90 pl-9 pr-8 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-500"
@@ -693,91 +678,58 @@ export default function App() {
                   onClick={() => setSearchQuery('')}
                   className="absolute right-2.5 p-0.5 text-zinc-500 hover:text-zinc-300"
                 >
-                  <X className="h-3.5 w-3.5" />
+                  <X className="h-3.5 w-3.5"/>
                 </button>
               )}
             </div>
 
-            {activeTab === 'tasks' && (
-              <div className="flex items-center gap-1.5 text-xs">
-                <span className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider shrink-0 flex items-center gap-1">
-                  <Flame className="h-3 w-3 text-amber-500" /> Criticidade:
-                </span>
-                <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-                  {(['all', 'alta', 'media', 'baixa'] as const).map((level) => {
-                    const isSelected = selectedCriticalityFilter === level;
-                    return (
-                      <button
-                        key={level}
-                        type="button"
-                        onClick={() => setSelectedCriticalityFilter(level)}
-                        className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition ${
-                          isSelected
-                            ? 'bg-zinc-100 text-zinc-950 font-bold'
-                            : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:bg-zinc-800'
-                        }`}
-                      >
-                        {level === 'all' && 'Todas'}
-                        {level === 'alta' && 'Alta 🔥'}
-                        {level === 'media' && 'Média'}
-                        {level === 'baixa' && 'Baixa'}
-                      </button>
-                    );
-                  })}
-                </div>
+            {/* Abas exclusivas de cada Frente */}
+            {activeTab === 'fronts' && (
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+                {fronts.map((front) => {
+                  const isSelected = activeFrontId === front.id;
+                  const count = tasks.filter(t => t.frontId === front.id && !t.completed).length;
+                  return (
+                    <button
+                      key={front.id}
+                      type="button"
+                      onClick={() => setActiveFrontId(front.id as number)}
+                      className={`whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-semibold transition border flex items-center gap-2 ${
+                        isSelected
+                          ? 'border-transparent text-zinc-950 shadow-md scale-100'
+                          : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-850 hover:text-zinc-200'
+                      }`}
+                      style={{ backgroundColor: isSelected ? front.color : undefined }}
+                    >
+                      {!isSelected && <span className="h-2 w-2 rounded-full" style={{ backgroundColor: front.color }} />}
+                      <span>{front.name}</span>
+                      <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                        isSelected ? 'bg-black/30 text-zinc-950 font-bold' : 'bg-zinc-800 text-zinc-400'
+                      }`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             )}
-
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs">
-              <button
-                type="button"
-                onClick={() => setSelectedFrontFilter('all')}
-                className={`whitespace-nowrap px-2.5 py-1 rounded-lg font-medium text-[11px] transition ${
-                  selectedFrontFilter === 'all'
-                    ? 'bg-zinc-100 text-zinc-950 font-semibold'
-                    : 'bg-zinc-900 text-zinc-400 border border-zinc-800/80 hover:bg-zinc-800'
-                }`}
-              >
-                Todas as Frentes
-              </button>
-              {fronts.map((front) => {
-                const isSelected = selectedFrontFilter === front.id;
-                return (
-                  <button
-                    key={front.id}
-                    type="button"
-                    onClick={() => setSelectedFrontFilter(isSelected ? 'all' : (front.id as number))}
-                    className={`whitespace-nowrap px-2.5 py-1 rounded-lg text-[11px] transition border flex items-center gap-1.5 ${
-                      isSelected
-                        ? 'border-transparent font-semibold text-zinc-950'
-                        : 'border-zinc-800/80 bg-zinc-900 text-zinc-300 hover:bg-zinc-800'
-                    }`}
-                    style={{ backgroundColor: isSelected ? front.color : undefined }}
-                  >
-                    {!isSelected && <span className="h-2 w-2 rounded-full" style={{ backgroundColor: front.color }} />}
-                    <span>{front.name}</span>
-                  </button>
-                );
-              })}
-            </div>
           </div>
         )}
       </header>
 
       <main className="flex-1 px-4 py-4 max-w-md mx-auto w-full pb-28">
         
-        {/* ================= ABA CRÍTICAS ================= */}
+        {/* ================= 1. ABA CRÍTICAS ================= */}
         {activeTab === 'critical' && (
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between text-xs pb-1">
               <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-rose-400">
-                <BadgeAlert className="h-4 w-4 text-rose-500 animate-pulse" />
+                <BadgeAlert className="h-4 w-4 text-rose-500 animate-pulse"/>
                 <span>Foco Crítico ({sortedCriticalTasks.length})</span>
               </div>
 
-              {/* Seletor Sort By compacto */}
               <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 text-[10px]">
-                <ArrowUpDown className="h-3 w-3 text-zinc-500 ml-1" />
+                <ArrowUpDown className="h-3 w-3 text-zinc-500 ml-1"/>
                 <button
                   onClick={() => setSortBy('pinned')}
                   className={`px-1.5 py-0.5 rounded font-medium transition ${
@@ -807,9 +759,9 @@ export default function App() {
 
             {sortedCriticalTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center">
-                <CheckCircle2 className="h-8 w-8 text-emerald-500/50 mb-2" />
+                <CheckCircle2 className="h-8 w-8 text-emerald-500/50 mb-2"/>
                 <p className="text-sm font-medium text-zinc-300">Nenhuma tarefa crítica pendente!</p>
-                <p className="text-xs text-zinc-600 mt-1">Nenhum item com criticidade alta ou prazo vencido.</p>
+                <p className="text-xs text-zinc-600 mt-1">Sem itens de alta criticidade ou prazos atrasados.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
@@ -819,33 +771,98 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= ABA TAREFAS ================= */}
-        {activeTab === 'tasks' && (
+        {/* ================= 2. ABA FRENTES ================= */}
+        {activeTab === 'fronts' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
-              <span>Todas as Tarefas</span>
-              <span className="text-zinc-500">{filteredAllTasks.length} de {tasks.length}</span>
+              <span className="flex items-center gap-1.5">
+                <FolderKanban className="h-3.5 w-3.5 text-zinc-400"/>
+                {activeFront ? activeFront.name : 'Selecione uma frente'}
+              </span>
+              <span className="text-zinc-500">{filteredFrontTasks.length} tarefas</span>
             </div>
 
-            {filteredAllTasks.length === 0 ? (
+            {filteredFrontTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center">
-                <p className="text-sm font-medium text-zinc-400">Nenhuma tarefa encontrada</p>
-                <p className="text-xs text-zinc-600 mt-1">Altere os filtros ou adicione uma nova.</p>
+                <p className="text-sm font-medium text-zinc-400">Nenhuma tarefa nesta frente</p>
+                <p className="text-xs text-zinc-600 mt-1">Toque no "+" para registrar uma atividade para {activeFront?.name}.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                {filteredAllTasks.map(renderTaskCard)}
+                {filteredFrontTasks.map(renderTaskCard)}
               </div>
             )}
           </div>
         )}
 
-        {/* ================= ABA COBRANÇA ================= */}
+        {/* ================= 3. ABA AGENDA ================= */}
+        {activeTab === 'schedule' && (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/60 p-2.5">
+              <button
+                type="button"
+                onClick={() => handleMonthStep(-1)}
+                className="p-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100 transition active:scale-95"
+              >
+                <ChevronLeft className="h-4 w-4"/>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <CalendarDays className="h-4 w-4 text-emerald-400"/>
+                <span className="text-sm font-bold text-zinc-100 uppercase tracking-wide">
+                  {selectedMonth}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleMonthStep(1)}
+                className="p-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-100 transition active:scale-95"
+              >
+                <ChevronRight className="h-4 w-4"/>
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between text-xs px-1">
+              <span className="text-[11px] text-zinc-400 flex items-center gap-1">
+                <FileText className="h-3.5 w-3.5 text-zinc-500"/>
+                Histórico & Bullet Points do Mês
+              </span>
+              <button
+                type="button"
+                onClick={handleSaveSchedule}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition active:scale-95 ${
+                  scheduleSavedFeedback
+                    ? 'bg-emerald-500 text-zinc-950'
+                    : 'bg-zinc-100 text-zinc-950 hover:bg-zinc-200'
+                }`}
+              >
+                {scheduleSavedFeedback ? 'Salvo ✓' : 'Salvar'}
+              </button>
+            </div>
+
+            <div className="flex flex-col rounded-2xl border border-zinc-800 bg-zinc-900/40 p-3 shadow-inner">
+              <textarea
+                value={scheduleText}
+                onChange={(e) => handleScheduleChange(e.target.value)}
+                onBlur={handleSaveSchedule}
+                placeholder={`Cole aqui o histórico de compromissos do mês em bullet points (Ctrl+C e Ctrl+V):\n\n• 05/10 - Reunião com fornecedor 14h\n• 12/10 - Alinhamento stand Petra\n• 19/10 - Check-in Airbnb às 11h\n• 25/10 - Ensaio Cidade Dormitório\n\nEdite, apague e organize suas semanas livremente.`}
+                rows={16}
+                className="w-full bg-transparent font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none resize-none leading-relaxed"
+              />
+            </div>
+            <p className="text-[10px] text-zinc-500 px-1 text-center">
+              Dica: O texto é gravado localmente para o mês selecionado. Ao mudar de mês ou sair do campo, as alterações ficam salvas.
+            </p>
+          </div>
+        )}
+
+        {/* ================= 4. ABA COBRANÇA ================= */}
         {activeTab === 'collections' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
               <span className="flex items-center gap-1.5">
-                <PhoneCall className="h-3.5 w-3.5 text-emerald-400" />
+                <PhoneCall className="h-3.5 w-3.5 text-emerald-400"/>
                 Painel de Cobranças
               </span>
               <span className="text-zinc-500">{collections.length} registros</span>
@@ -900,7 +917,7 @@ export default function App() {
                             className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
                             title="Excluir"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4"/>
                           </button>
                         </div>
                       </div>
@@ -925,12 +942,12 @@ export default function App() {
                           >
                             {copiedId === col.id ? (
                               <>
-                                <Check className="h-3.5 w-3.5 text-emerald-400" />
+                                <Check className="h-3.5 w-3.5 text-emerald-400"/>
                                 <span className="text-emerald-400">Copiado!</span>
                               </>
                             ) : (
                               <>
-                                <Copy className="h-3.5 w-3.5" />
+                                <Copy className="h-3.5 w-3.5"/>
                                 <span>Copiar</span>
                               </>
                             )}
@@ -942,7 +959,7 @@ export default function App() {
                               onClick={(e) => handleOpenWhatsApp(e, col.phone, messageText)}
                               className="flex items-center gap-1 px-3 py-1 rounded-lg bg-emerald-600 text-xs font-bold text-white shadow hover:bg-emerald-500 active:scale-95 transition"
                             >
-                              <Send className="h-3.5 w-3.5" />
+                              <Send className="h-3.5 w-3.5"/>
                               <span>WhatsApp</span>
                             </button>
                           )}
@@ -956,55 +973,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= ABA FRENTES ================= */}
-        {activeTab === 'fronts' && (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
-              <span>Frentes & Projetos</span>
-              <span className="text-zinc-500">{fronts.length} total</span>
-            </div>
-
-            {fronts.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center text-sm text-zinc-500">
-                Nenhuma frente cadastrada. Toque no "+" para organizar seus projetos.
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {fronts.map((front) => (
-                  <div
-                    key={front.id}
-                    onClick={() => {
-                      setEditingFrontId(front.id!);
-                      setFrontName(front.name);
-                      setFrontColor(front.color);
-                      setIsModalOpen(true);
-                    }}
-                    className="cursor-pointer flex items-center justify-between rounded-xl border border-zinc-800/70 bg-zinc-900/30 p-3.5 hover:border-zinc-700 transition"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: front.color }} />
-                      <span className="text-sm font-medium text-zinc-200">{front.name}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          front.id && db.fronts.delete(front.id);
-                        }}
-                        className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ================= ABA IDEIAS ================= */}
+        {/* ================= 5. ABA IDEIAS ================= */}
         {activeTab === 'ideas' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
@@ -1030,7 +999,7 @@ export default function App() {
                         onClick={() => idea.id && db.ideas.delete(idea.id)}
                         className="p-1 text-zinc-500 hover:text-rose-400 transition"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-4 w-4"/>
                       </button>
                     </div>
                     {idea.content && (
@@ -1046,14 +1015,16 @@ export default function App() {
       </main>
 
       {/* Botão Flutuante (+) */}
-      <button
-        type="button"
-        onClick={handleOpenCreateModal}
-        className="fixed bottom-20 right-5 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 text-zinc-950 shadow-lg shadow-black/50 transition active:scale-90"
-        title="Adicionar"
-      >
-        <Plus className="h-6 w-6 stroke-[2.5]" />
-      </button>
+      {activeTab !== 'schedule' && (
+        <button
+          type="button"
+          onClick={handleOpenCreateModal}
+          className="fixed bottom-20 right-5 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 text-zinc-950 shadow-lg shadow-black/50 transition active:scale-90"
+          title="Adicionar"
+        >
+          <Plus className="h-6 w-6 stroke-[2.5]"/>
+        </button>
+      )}
 
       {/* Modal / Gaveta de Criação e Edição */}
       {isModalOpen && (
@@ -1075,12 +1046,10 @@ export default function App() {
                   ? 'Editar Frente'
                   : activeTab === 'critical' 
                   ? 'Nova Tarefa Crítica'
-                  : activeTab === 'tasks' 
-                  ? 'Nova Tarefa'
+                  : activeTab === 'fronts' 
+                  ? `Nova Tarefa (${activeFront?.name || 'Frente'})`
                   : activeTab === 'collections' 
                   ? 'Nova Cobrança'
-                  : activeTab === 'fronts' 
-                  ? 'Nova Frente'
                   : 'Nova Ideia'}
               </span>
               <button
@@ -1088,12 +1057,12 @@ export default function App() {
                 onClick={() => setIsModalOpen(false)}
                 className="p-1 rounded-full text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900 transition"
               >
-                <X className="h-5 w-5" />
+                <X className="h-5 w-5"/>
               </button>
             </div>
 
             <form onSubmit={handleSaveItem} className="flex flex-col gap-3">
-              {(activeTab === 'critical' || activeTab === 'tasks') && (
+              {(activeTab === 'critical' || activeTab === 'fronts') && (
                 <>
                   <input
                     type="text"
@@ -1113,7 +1082,7 @@ export default function App() {
 
                   <div className="flex flex-col gap-1.5">
                     <label className="text-[10px] uppercase font-semibold text-zinc-500 flex items-center gap-1">
-                      <Flame className="h-3 w-3 text-amber-500" /> Grau de Criticidade
+                      <Flame className="h-3 w-3 text-amber-500"/> Grau de Criticidade
                     </label>
                     <div className="grid grid-cols-3 gap-2">
                       <button
@@ -1260,28 +1229,6 @@ export default function App() {
                 </>
               )}
 
-              {activeTab === 'fronts' && (
-                <>
-                  <input
-                    type="text"
-                    placeholder="Nome da frente (ex: Recanto, Carreira)"
-                    value={frontName}
-                    onChange={(e) => setFrontName(e.target.value)}
-                    autoFocus
-                    className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-400"
-                  />
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-zinc-400">Cor:</label>
-                    <input
-                      type="color"
-                      value={frontColor}
-                      onChange={(e) => setFrontColor(e.target.value)}
-                      className="h-9 w-12 rounded-xl border border-zinc-700 bg-zinc-900 p-1 cursor-pointer"
-                    />
-                  </div>
-                </>
-              )}
-
               {activeTab === 'ideas' && (
                 <>
                   <input
@@ -1320,7 +1267,7 @@ export default function App() {
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-zinc-100">Backup dos Dados</h3>
               <button onClick={() => setBackupTextModal(null)} className="text-zinc-500 hover:text-zinc-200">
-                <X className="h-5 w-5" />
+                <X className="h-5 w-5"/>
               </button>
             </div>
             <p className="text-xs text-zinc-400">
@@ -1346,7 +1293,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Navegação Inferior Fixa */}
+      {/* Navegação Inferior Atualizada: Críticas, Frentes, Agenda, Cobrança, Ideias */}
       <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-800/80 bg-zinc-950/95 px-3 pt-2 pb-safe backdrop-blur-lg">
         <div className="mx-auto flex max-w-md items-center justify-around">
           <button
@@ -1356,18 +1303,28 @@ export default function App() {
               activeTab === 'critical' ? 'text-rose-400 font-bold' : 'text-zinc-500'
             }`}
           >
-            <Zap className="h-5 w-5" />
+            <Zap className="h-5 w-5"/>
             Críticas
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('tasks')}
+            onClick={() => setActiveTab('fronts')}
             className={`flex flex-col items-center gap-1 p-1 text-[10px] font-medium transition ${
-              activeTab === 'tasks' ? 'text-zinc-100 font-bold' : 'text-zinc-500'
+              activeTab === 'fronts' ? 'text-zinc-100 font-bold' : 'text-zinc-500'
             }`}
           >
-            <CheckSquare className="h-5 w-5" />
-            Tarefas
+            <FolderKanban className="h-5 w-5"/>
+            Frentes
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('schedule')}
+            className={`flex flex-col items-center gap-1 p-1 text-[10px] font-medium transition ${
+              activeTab === 'schedule' ? 'text-emerald-400 font-bold' : 'text-zinc-500'
+            }`}
+          >
+            <CalendarDays className="h-5 w-5"/>
+            Agenda
           </button>
           <button
             type="button"
@@ -1376,18 +1333,8 @@ export default function App() {
               activeTab === 'collections' ? 'text-emerald-400 font-bold' : 'text-zinc-500'
             }`}
           >
-            <PhoneCall className="h-5 w-5" />
+            <PhoneCall className="h-5 w-5"/>
             Cobrança
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('fronts')}
-            className={`flex flex-col items-center gap-1 p-1 text-[10px] font-medium transition ${
-              activeTab === 'fronts' ? 'text-zinc-100' : 'text-zinc-500'
-            }`}
-          >
-            <FolderKanban className="h-5 w-5" />
-            Frentes
           </button>
           <button
             type="button"
@@ -1396,7 +1343,7 @@ export default function App() {
               activeTab === 'ideas' ? 'text-zinc-100' : 'text-zinc-500'
             }`}
           >
-            <Lightbulb className="h-5 w-5" />
+            <Lightbulb className="h-5 w-5"/>
             Ideias
           </button>
         </div>

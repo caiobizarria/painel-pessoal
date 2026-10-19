@@ -40,11 +40,19 @@ export interface DebtCollection {
   createdAt: string;
 }
 
+export interface MonthlySchedule {
+  id?: number;
+  monthKey: string; // formato YYYY-MM
+  rawText: string;
+  updatedAt: string;
+}
+
 export class PersonalDatabase extends Dexie {
   tasks!: Table<Task>;
   fronts!: Table<Front>;
   ideas!: Table<Idea>;
   collections!: Table<DebtCollection>;
+  schedules!: Table<MonthlySchedule>;
 
   constructor() {
     super('PersonalDatabase');
@@ -65,6 +73,10 @@ export class PersonalDatabase extends Dexie {
     });
     this.version(5).stores({
       tasks: '++id, title, notes, frontId, completed, dueDate, criticality, pinned, order, createdAt',
+    });
+    // Versão 6: Tabela para histórico mensal da Agenda (Ctrl+C / Ctrl+V livre)
+    this.version(6).stores({
+      schedules: '++id, &monthKey, updatedAt',
     });
   }
 }
