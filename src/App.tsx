@@ -13,8 +13,6 @@ import {
   Calendar, 
   Plus, 
   Trash2, 
-  FolderKanban, 
-  Lightbulb, 
   Download, 
   Upload, 
   X, 
@@ -33,7 +31,9 @@ import {
   CalendarDays,
   FileText,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Folder,
+  Lightbulb
 } from 'lucide-react';
 
 function addDaysToDate(baseDateStr: string | undefined, daysToAdd: number): string {
@@ -43,15 +43,13 @@ function addDaysToDate(baseDateStr: string | undefined, daysToAdd: number): stri
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'critical' | 'fronts' | 'schedule' | 'collections' | 'ideas'>('critical');
-  
-  // Controle de Frente Ativa
-  const [activeFrontId, setActiveFrontId] = useState<number | null>(null);
+  // Navegação: pode ser o ID numérico de uma Frente OU uma das abas utilitárias de topo
+  const [activeView, setActiveView] = useState<number | 'critical' | 'schedule' | 'collections' | 'ideas'>('critical');
 
   // Ordenação na aba Críticas
   const [sortBy, setSortBy] = useState<'pinned' | 'criticality' | 'dueDate'>('pinned');
 
-  // Mês Selecionado para a Agenda (YYYY-MM)
+  // Agenda Mensal (YYYY-MM)
   const currentMonthKey = new Date().toISOString().slice(0, 7);
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
   const [scheduleText, setScheduleText] = useState<string>('');
@@ -72,7 +70,6 @@ export default function App() {
   const [taskTitle, setTaskTitle] = useState('');
   const [taskNotes, setTaskNotes] = useState('');
   const [taskDate, setTaskDate] = useState('');
-  const [taskFrontId, setTaskFrontId] = useState<string>('');
   const [taskCriticality, setTaskCriticality] = useState<CriticalityLevel>('media');
 
   // Formulário Frentes
@@ -112,13 +109,6 @@ export default function App() {
     return () => { isMounted = false; };
   }, [selectedMonth]);
 
-  // Define a primeira frente como ativa caso nenhuma esteja selecionada
-  useEffect(() => {
-    if (fronts.length > 0 && activeFrontId === null) {
-      setActiveFrontId(fronts[0].id || null);
-    }
-  }, [fronts, activeFrontId]);
-
   const handleScheduleChange = (text: string) => {
     setScheduleText(text);
   };
@@ -149,15 +139,15 @@ export default function App() {
     setSelectedMonth(`${newYear}-${newMonth}`);
   };
 
+  // Abre o modal atribuindo automaticamente a Frente ativa atual
   const handleOpenCreateModal = () => {
     setEditingTaskId(null);
     setEditingFrontId(null);
     setEditingCollectionId(null);
     setTaskTitle('');
     setTaskNotes('');
-    setTaskCriticality(activeTab === 'critical' ? 'alta' : 'media');
-    setTaskDate(activeTab === 'critical' ? todayStr : '');
-    setTaskFrontId(activeTab === 'fronts' && activeFrontId ? String(activeFrontId) : '');
+    setTaskCriticality(activeView === 'critical' ? 'alta' : 'media');
+    setTaskDate(activeView === 'critical' ? todayStr : '');
     setFrontName('');
     setFrontColor('#3b82f6');
     setIdeaTitle('');
@@ -177,7 +167,6 @@ export default function App() {
     setTaskTitle(task.title);
     setTaskNotes(task.notes || '');
     setTaskDate(task.dueDate || '');
-    setTaskFrontId(task.frontId ? String(task.frontId) : '');
     setTaskCriticality(task.criticality || 'media');
     setIsModalOpen(true);
   };
@@ -199,37 +188,31 @@ export default function App() {
     if (!task.id) return;
     const baseDate = (task.dueDate && task.dueDate >= todayStr) ? task.dueDate : todayStr;
     const newDueDate = addDaysToDate(baseDate, days);
-    
-    await db.tasks.update(task.id, {
-      dueDate: newDueDate,
-      completed: false
-    });
+    await db.tasks.update(task.id, { dueDate: newDueDate, completed: false });
   };
 
   const handleTogglePin = async (e: React.MouseEvent, task: Task) => {
     e.stopPropagation();
     if (!task.id) return;
-    await db.tasks.update(task.id, {
-      pinned: !task.pinned
-    });
+    await db.tasks.update(task.id, { pinned: !task.pinned });
   };
 
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (activeTab === 'critical' || activeTab === 'fronts') {
+    const isInsideFront = typeof activeView === 'number';
+
+    if (activeView === 'critical' || isInsideFront) {
       if (!taskTitle.trim()) return;
 
-      const resolvedFrontId = taskFrontId 
-        ? Number(taskFrontId) 
-        : (activeTab === 'fronts' && activeFrontId ? activeFrontId : undefined);
+      // Se estiver em uma frente, atribui o frontId automaticamente sem perguntar
+      const targetFrontId = isInsideFront ? activeView : undefined;
 
       if (editingTaskId) {
         await db.tasks.update(editingTaskId, {
           title: taskTitle.trim(),
           notes: taskNotes.trim() || undefined,
           dueDate: taskDate || undefined,
-          frontId: resolvedFrontId,
           criticality: taskCriticality,
         });
       } else {
@@ -238,7 +221,7 @@ export default function App() {
           notes: taskNotes.trim() || undefined,
           completed: false,
           dueDate: taskDate || undefined,
-          frontId: resolvedFrontId,
+          frontId: targetFrontId,
           criticality: taskCriticality,
           pinned: false,
           createdAt: new Date().toISOString(),
@@ -247,14 +230,14 @@ export default function App() {
     } else if (editingFrontId) {
       if (!frontName.trim()) return;
       await db.fronts.update(editingFrontId, { name: frontName.trim(), color: frontColor });
-    } else if (activeTab === 'ideas') {
+    } else if (activeView === 'ideas') {
       if (!ideaTitle.trim()) return;
       await db.ideas.add({
         title: ideaTitle.trim(),
         content: ideaContent.trim(),
         createdAt: new Date().toISOString(),
       });
-    } else if (activeTab === 'collections') {
+    } else if (activeView === 'collections') {
       if (!colContactName.trim() || !colReason.trim()) return;
       if (editingCollectionId) {
         await db.collections.update(editingCollectionId, {
@@ -312,37 +295,24 @@ export default function App() {
       };
 
       const jsonString = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const filename = `backup-painel-${todayStr}.json`;
 
-      try {
-        const blob = new Blob([jsonString], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const filename = `backup-painel-${todayStr}.json`;
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.href = url;
+      downloadAnchor.download = filename;
+      downloadAnchor.target = '_blank';
+      downloadAnchor.rel = 'noopener';
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
 
-        const downloadAnchor = document.createElement('a');
-        downloadAnchor.href = url;
-        downloadAnchor.download = filename;
-        downloadAnchor.target = '_blank';
-        downloadAnchor.rel = 'noopener';
-        document.body.appendChild(downloadAnchor);
-        downloadAnchor.click();
-
-        setTimeout(() => {
-          document.body.removeChild(downloadAnchor);
-          URL.revokeObjectURL(url);
-        }, 800);
-      } catch {
-        setBackupTextModal(jsonString);
-      }
-    } catch (err: any) {
-      console.error('Erro ao exportar:', err);
-      try {
-        const fallbackTasks = await db.tasks.toArray();
-        const jsonFallback = JSON.stringify({ tasks: fallbackTasks }, null, 2);
-        await navigator.clipboard.writeText(jsonFallback);
-        alert('Backup copiado para a Área de Transferência!');
-      } catch {
-        alert('Falha ao exportar dados.');
-      }
+      setTimeout(() => {
+        document.body.removeChild(downloadAnchor);
+        URL.revokeObjectURL(url);
+      }, 800);
+    } catch {
+      alert('Falha ao exportar backup diretamente.');
     }
   };
 
@@ -354,7 +324,7 @@ export default function App() {
     reader.onload = async (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
-        if (confirm('Deseja restaurar este backup? Dados existentes serão preservados.')) {
+        if (confirm('Deseja restaurar este backup?')) {
           if (json.tasks?.length) await db.tasks.bulkPut(json.tasks);
           if (json.fronts?.length) await db.fronts.bulkPut(json.fronts);
           if (json.ideas?.length) await db.ideas.bulkPut(json.ideas);
@@ -372,7 +342,7 @@ export default function App() {
 
   const handleExportCollectionsCSV = () => {
     if (collections.length === 0) {
-      alert('Nenhuma cobrança registrada para exportar.');
+      alert('Nenhuma cobrança registrada.');
       return;
     }
 
@@ -405,8 +375,7 @@ export default function App() {
     e.stopPropagation();
     const cleanPhone = phone.replace(/\D/g, '');
     const phoneWithDDI = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
-    const url = `https://wa.me/${phoneWithDDI}?text=${encodeURIComponent(text)}`;
-    window.open(url, '_blank');
+    window.open(`https://wa.me/${phoneWithDDI}?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   const handleCopyText = (e: React.MouseEvent, id: number, textToCopy: string) => {
@@ -432,7 +401,7 @@ export default function App() {
     });
   };
 
-  // Aba Críticas
+  // 1. Críticas
   const criticalBaseTasks = tasks.filter(t => 
     !t.completed && (
       t.criticality === 'alta' || 
@@ -459,10 +428,11 @@ export default function App() {
     return (b.id || 0) - (a.id || 0);
   });
 
-  // Aba Frentes (exclusiva)
-  const activeFront = fronts.find(f => f.id === activeFrontId);
-  const frontTasks = tasks.filter(t => t.frontId === activeFrontId);
-  const filteredFrontTasks = filterList(frontTasks);
+  // 2. Tarefas da Frente Selecionada
+  const isFrontActive = typeof activeView === 'number';
+  const currentFront = fronts.find(f => f.id === activeView);
+  const currentFrontTasks = isFrontActive ? tasks.filter(t => t.frontId === activeView) : [];
+  const filteredFrontTasks = filterList(currentFrontTasks);
 
   const getCriticalityBadge = (level?: CriticalityLevel) => {
     switch (level) {
@@ -533,7 +503,8 @@ export default function App() {
                     {isDueToday && <span className="font-bold">Hoje</span>}
                   </span>
                 )}
-                {front && (
+                {/* Mostra a tag de frente apenas se estiver na aba Críticas */}
+                {front && activeView === 'critical' && (
                   <span 
                     className="px-1.5 py-0.5 rounded text-[10px] font-medium"
                     style={{ backgroundColor: `${front.color}22`, color: front.color }}
@@ -613,105 +584,99 @@ export default function App() {
         <div className="mx-auto flex max-w-md items-center justify-between">
           <div className="flex items-center gap-2">
             <h1 className="text-base font-semibold tracking-tight text-zinc-100">Painel Pessoal</h1>
-            <span className="rounded-full bg-zinc-800/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-              {activeTab === 'critical' && 'Críticas'}
-              {activeTab === 'fronts' && (activeFront ? activeFront.name : 'Frentes')}
-              {activeTab === 'schedule' && 'Agenda Mensal'}
-              {activeTab === 'collections' && 'Cobrança'}
-              {activeTab === 'ideas' && 'Ideias'}
-            </span>
+            {currentFront && (
+              <span 
+                className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+                style={{ backgroundColor: `${currentFront.color}22`, color: currentFront.color }}
+              >
+                {currentFront.name}
+              </span>
+            )}
           </div>
 
-          <div className="flex items-center gap-1.5">
-            {activeTab === 'collections' ? (
+          {/* Abas Globais no Topo Direito (Críticas, Agenda, Cobrança, Ideias) */}
+          <div className="flex items-center gap-1 bg-zinc-900/90 border border-zinc-800 rounded-xl p-1">
+            <button
+              type="button"
+              onClick={() => setActiveView('critical')}
+              title="Foco Crítico"
+              className={`p-1.5 rounded-lg transition ${
+                activeView === 'critical' ? 'bg-rose-500/20 text-rose-300 font-bold' : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Zap className="h-4 w-4"/>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveView('schedule')}
+              title="Agenda Mensal"
+              className={`p-1.5 rounded-lg transition ${
+                activeView === 'schedule' ? 'bg-emerald-500/20 text-emerald-300 font-bold' : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <CalendarDays className="h-4 w-4"/>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveView('collections')}
+              title="Cobranças"
+              className={`p-1.5 rounded-lg transition ${
+                activeView === 'collections' ? 'bg-sky-500/20 text-sky-300 font-bold' : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <PhoneCall className="h-4 w-4"/>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveView('ideas')}
+              title="Ideias"
+              className={`p-1.5 rounded-lg transition ${
+                activeView === 'ideas' ? 'bg-amber-500/20 text-amber-300 font-bold' : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Lightbulb className="h-4 w-4"/>
+            </button>
+
+            <div className="h-4 w-[1px] bg-zinc-800 mx-0.5" />
+
+            {activeView === 'collections' ? (
               <button
                 onClick={handleExportCollectionsCSV}
-                title="Exportar Cobranças em Planilha Excel/CSV"
-                className="flex items-center gap-1 rounded-lg border border-emerald-800/60 bg-emerald-950/50 px-2.5 py-1 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-900 active:scale-95"
+                title="Exportar Planilha CSV"
+                className="p-1.5 text-emerald-400 hover:text-emerald-300"
               >
-                <FileSpreadsheet className="h-3.5 w-3.5"/>
-                <span>Planilha</span>
+                <FileSpreadsheet className="h-4 w-4"/>
               </button>
             ) : (
-              <>
-                <button
-                  onClick={handleExportData}
-                  title="Exportar Backup Geral"
-                  className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 active:scale-95"
-                >
-                  <Download className="h-3.5 w-3.5"/>
-                  <span>Exportar</span>
-                </button>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  title="Restaurar Backup"
-                  className="p-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200 transition active:scale-95"
-                >
-                  <Upload className="h-3.5 w-3.5"/>
-                </button>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleImportData}
-                  accept=".json"
-                  className="hidden"
-                />
-              </>
+              <button
+                onClick={handleExportData}
+                title="Exportar Backup JSON"
+                className="p-1.5 text-zinc-400 hover:text-zinc-200"
+              >
+                <Download className="h-4 w-4"/>
+              </button>
             )}
           </div>
         </div>
 
-        {/* Lupa e Filtros em Críticas e Frentes */}
-        {(activeTab === 'critical' || activeTab === 'fronts') && (
-          <div className="mx-auto max-w-md mt-3 flex flex-col gap-2">
-            <div className="relative flex items-center">
-              <Search className="absolute left-3 h-4 w-4 text-zinc-500"/>
-              <input
-                type="text"
-                placeholder={activeTab === 'critical' ? "Buscar nas críticas..." : `Buscar em ${activeFront ? activeFront.name : 'tarefas'}...`}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-900/90 pl-9 pr-8 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-500"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 p-0.5 text-zinc-500 hover:text-zinc-300"
-                >
-                  <X className="h-3.5 w-3.5"/>
-                </button>
-              )}
-            </div>
-
-            {/* Abas exclusivas de cada Frente */}
-            {activeTab === 'fronts' && (
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
-                {fronts.map((front) => {
-                  const isSelected = activeFrontId === front.id;
-                  const count = tasks.filter(t => t.frontId === front.id && !t.completed).length;
-                  return (
-                    <button
-                      key={front.id}
-                      type="button"
-                      onClick={() => setActiveFrontId(front.id as number)}
-                      className={`whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-semibold transition border flex items-center gap-2 ${
-                        isSelected
-                          ? 'border-transparent text-zinc-950 shadow-md scale-100'
-                          : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-850 hover:text-zinc-200'
-                      }`}
-                      style={{ backgroundColor: isSelected ? front.color : undefined }}
-                    >
-                      {!isSelected && <span className="h-2 w-2 rounded-full" style={{ backgroundColor: front.color }} />}
-                      <span>{front.name}</span>
-                      <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                        isSelected ? 'bg-black/30 text-zinc-950 font-bold' : 'bg-zinc-800 text-zinc-400'
-                      }`}>
-                        {count}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+        {/* Lupa de busca rápida (em Críticas ou Frentes) */}
+        {(activeView === 'critical' || isFrontActive) && (
+          <div className="mx-auto max-w-md mt-3 relative flex items-center">
+            <Search className="absolute left-3 h-4 w-4 text-zinc-500"/>
+            <input
+              type="text"
+              placeholder={activeView === 'critical' ? "Buscar nas críticas..." : `Buscar em ${currentFront?.name || 'tarefas'}...`}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-900/90 pl-9 pr-8 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-500"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 p-0.5 text-zinc-500 hover:text-zinc-300"
+              >
+                <X className="h-3.5 w-3.5"/>
+              </button>
             )}
           </div>
         )}
@@ -720,7 +685,7 @@ export default function App() {
       <main className="flex-1 px-4 py-4 max-w-md mx-auto w-full pb-28">
         
         {/* ================= 1. ABA CRÍTICAS ================= */}
-        {activeTab === 'critical' && (
+        {activeView === 'critical' && (
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between text-xs pb-1">
               <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-rose-400">
@@ -771,13 +736,13 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= 2. ABA FRENTES ================= */}
-        {activeTab === 'fronts' && (
+        {/* ================= 2. FRENTES ESPECÍFICAS ================= */}
+        {isFrontActive && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
-              <span className="flex items-center gap-1.5">
-                <FolderKanban className="h-3.5 w-3.5 text-zinc-400"/>
-                {activeFront ? activeFront.name : 'Selecione uma frente'}
+              <span className="flex items-center gap-1.5" style={{ color: currentFront?.color }}>
+                <Folder className="h-3.5 w-3.5"/>
+                {currentFront?.name}
               </span>
               <span className="text-zinc-500">{filteredFrontTasks.length} tarefas</span>
             </div>
@@ -785,7 +750,9 @@ export default function App() {
             {filteredFrontTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800/80 p-12 text-center">
                 <p className="text-sm font-medium text-zinc-400">Nenhuma tarefa nesta frente</p>
-                <p className="text-xs text-zinc-600 mt-1">Toque no "+" para registrar uma atividade para {activeFront?.name}.</p>
+                <p className="text-xs text-zinc-600 mt-1">
+                  Toque no "+" para adicionar diretamente em <strong className="text-zinc-200">{currentFront?.name}</strong>.
+                </p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
@@ -795,8 +762,8 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= 3. ABA AGENDA ================= */}
-        {activeTab === 'schedule' && (
+        {/* ================= 3. AGENDA MENSAL ================= */}
+        {activeView === 'schedule' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/60 p-2.5">
               <button
@@ -846,19 +813,16 @@ export default function App() {
                 value={scheduleText}
                 onChange={(e) => handleScheduleChange(e.target.value)}
                 onBlur={handleSaveSchedule}
-                placeholder={`Cole aqui o histórico de compromissos do mês em bullet points (Ctrl+C e Ctrl+V):\n\n• 05/10 - Reunião com fornecedor 14h\n• 12/10 - Alinhamento stand Petra\n• 19/10 - Check-in Airbnb às 11h\n• 25/10 - Ensaio Cidade Dormitório\n\nEdite, apague e organize suas semanas livremente.`}
+                placeholder={`Cole aqui compromissos do mês em bullet points (Ctrl+C e Ctrl+V):\n\n• 05/10 - Reunião fornecedor 14h\n• 12/10 - Alinhamento stand Petra\n• 19/10 - Check-in Airbnb às 11h\n• 25/10 - Ensaio Cidade Dormitório`}
                 rows={16}
                 className="w-full bg-transparent font-mono text-xs text-zinc-200 placeholder-zinc-600 outline-none resize-none leading-relaxed"
               />
             </div>
-            <p className="text-[10px] text-zinc-500 px-1 text-center">
-              Dica: O texto é gravado localmente para o mês selecionado. Ao mudar de mês ou sair do campo, as alterações ficam salvas.
-            </p>
           </div>
         )}
 
-        {/* ================= 4. ABA COBRANÇA ================= */}
-        {activeTab === 'collections' && (
+        {/* ================= 4. COBRANÇA ================= */}
+        {activeView === 'collections' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
               <span className="flex items-center gap-1.5">
@@ -907,19 +871,17 @@ export default function App() {
                           )}
                         </div>
 
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              col.id && db.collections.delete(col.id);
-                            }}
-                            className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
-                            title="Excluir"
-                          >
-                            <Trash2 className="h-4 w-4"/>
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            col.id && db.collections.delete(col.id);
+                          }}
+                          className="p-1.5 text-zinc-500 hover:text-rose-400 transition"
+                          title="Excluir"
+                        >
+                          <Trash2 className="h-4 w-4"/>
+                        </button>
                       </div>
 
                       {col.details && (
@@ -938,7 +900,6 @@ export default function App() {
                             type="button"
                             onClick={(e) => handleCopyText(e, col.id!, messageText)}
                             className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-800 bg-zinc-900 text-xs font-medium text-zinc-300 hover:bg-zinc-800 active:scale-95 transition"
-                            title="Copiar texto para colar"
                           >
                             {copiedId === col.id ? (
                               <>
@@ -973,8 +934,8 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= 5. ABA IDEIAS ================= */}
-        {activeTab === 'ideas' && (
+        {/* ================= 5. IDEIAS ================= */}
+        {activeView === 'ideas' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold uppercase tracking-wider py-1">
               <span>Caderno de Ideias</span>
@@ -1015,7 +976,7 @@ export default function App() {
       </main>
 
       {/* Botão Flutuante (+) */}
-      {activeTab !== 'schedule' && (
+      {activeView !== 'schedule' && (
         <button
           type="button"
           onClick={handleOpenCreateModal}
@@ -1026,7 +987,7 @@ export default function App() {
         </button>
       )}
 
-      {/* Modal / Gaveta de Criação e Edição */}
+      {/* Modal de Criação / Edição */}
       {isModalOpen && (
         <div 
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm p-0"
@@ -1042,13 +1003,11 @@ export default function App() {
                   ? 'Editar Tarefa'
                   : editingCollectionId 
                   ? 'Editar Cobrança'
-                  : editingFrontId 
-                  ? 'Editar Frente'
-                  : activeTab === 'critical' 
+                  : isFrontActive 
+                  ? `Nova Tarefa em ${currentFront?.name}`
+                  : activeView === 'critical' 
                   ? 'Nova Tarefa Crítica'
-                  : activeTab === 'fronts' 
-                  ? `Nova Tarefa (${activeFront?.name || 'Frente'})`
-                  : activeTab === 'collections' 
+                  : activeView === 'collections' 
                   ? 'Nova Cobrança'
                   : 'Nova Ideia'}
               </span>
@@ -1062,7 +1021,7 @@ export default function App() {
             </div>
 
             <form onSubmit={handleSaveItem} className="flex flex-col gap-3">
-              {(activeTab === 'critical' || activeTab === 'fronts') && (
+              {(activeView === 'critical' || isFrontActive) && (
                 <>
                   <input
                     type="text"
@@ -1149,29 +1108,17 @@ export default function App() {
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="date"
-                        value={taskDate}
-                        onChange={(e) => setTaskDate(e.target.value)}
-                        className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-100 outline-none [color-scheme:dark]"
-                      />
-                      <select
-                        value={taskFrontId}
-                        onChange={(e) => setTaskFrontId(e.target.value)}
-                        className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-100 outline-none [color-scheme:dark]"
-                      >
-                        <option value="">Sem frente</option>
-                        {fronts.map(f => (
-                          <option key={f.id} value={f.id}>{f.name}</option>
-                        ))}
-                      </select>
-                    </div>
+                    <input
+                      type="date"
+                      value={taskDate}
+                      onChange={(e) => setTaskDate(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-100 outline-none [color-scheme:dark]"
+                    />
                   </div>
                 </>
               )}
 
-              {activeTab === 'collections' && (
+              {activeView === 'collections' && (
                 <>
                   <input
                     type="text"
@@ -1229,7 +1176,7 @@ export default function App() {
                 </>
               )}
 
-              {activeTab === 'ideas' && (
+              {activeView === 'ideas' && (
                 <>
                   <input
                     type="text"
@@ -1260,92 +1207,40 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal de Fallback de Backup */}
-      {backupTextModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-950 p-5 shadow-2xl flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-zinc-100">Backup dos Dados</h3>
-              <button onClick={() => setBackupTextModal(null)} className="text-zinc-500 hover:text-zinc-200">
-                <X className="h-5 w-5"/>
+      {/* Barra Inferior Fixa dedicada 100% às FRENTES */}
+      <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-800/80 bg-zinc-950/95 px-2 pt-2 pb-safe backdrop-blur-lg">
+        <div className="mx-auto flex max-w-md items-center justify-around gap-1 overflow-x-auto no-scrollbar">
+          {fronts.map((front) => {
+            const isSelected = activeView === front.id;
+            const count = tasks.filter(t => t.frontId === front.id && !t.completed).length;
+            return (
+              <button
+                key={front.id}
+                type="button"
+                onClick={() => setActiveView(front.id as number)}
+                className={`flex flex-1 flex-col items-center justify-center gap-1 py-1 px-1 rounded-xl transition ${
+                  isSelected 
+                    ? 'bg-zinc-900 text-zinc-100 font-bold border border-zinc-800' 
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                <div className="relative flex items-center justify-center">
+                  <span 
+                    className="h-2.5 w-2.5 rounded-full" 
+                    style={{ backgroundColor: front.color }}
+                  />
+                  {count > 0 && (
+                    <span className="absolute -top-1.5 -right-3 px-1 py-0.2 bg-zinc-800 text-[9px] font-mono text-zinc-300 rounded-full border border-zinc-700">
+                      {count}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[11px] truncate max-w-[70px]">
+                  {front.name.replace(/^[^\w\s]+/, '').trim() || front.name}
+                </span>
               </button>
-            </div>
-            <p className="text-xs text-zinc-400">
-              O download automático foi bloqueado pelo navegador. Toque abaixo para copiar o texto completo do backup e colar no Bloco de Notas:
-            </p>
-            <textarea
-              readOnly
-              value={backupTextModal}
-              rows={8}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-900 p-2.5 font-mono text-[10px] text-zinc-300 outline-none"
-            />
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(backupTextModal);
-                alert('Backup copiado para a Área de Transferência!');
-                setBackupTextModal(null);
-              }}
-              className="w-full rounded-xl bg-zinc-100 py-2.5 text-xs font-bold text-zinc-950 transition hover:bg-zinc-200 active:scale-98"
-            >
-              Copiar para Área de Transferência
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Navegação Inferior Atualizada: Críticas, Frentes, Agenda, Cobrança, Ideias */}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-800/80 bg-zinc-950/95 px-3 pt-2 pb-safe backdrop-blur-lg">
-        <div className="mx-auto flex max-w-md items-center justify-around">
-          <button
-            type="button"
-            onClick={() => setActiveTab('critical')}
-            className={`flex flex-col items-center gap-1 p-1 text-[10px] font-medium transition ${
-              activeTab === 'critical' ? 'text-rose-400 font-bold' : 'text-zinc-500'
-            }`}
-          >
-            <Zap className="h-5 w-5"/>
-            Críticas
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('fronts')}
-            className={`flex flex-col items-center gap-1 p-1 text-[10px] font-medium transition ${
-              activeTab === 'fronts' ? 'text-zinc-100 font-bold' : 'text-zinc-500'
-            }`}
-          >
-            <FolderKanban className="h-5 w-5"/>
-            Frentes
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('schedule')}
-            className={`flex flex-col items-center gap-1 p-1 text-[10px] font-medium transition ${
-              activeTab === 'schedule' ? 'text-emerald-400 font-bold' : 'text-zinc-500'
-            }`}
-          >
-            <CalendarDays className="h-5 w-5"/>
-            Agenda
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('collections')}
-            className={`flex flex-col items-center gap-1 p-1 text-[10px] font-medium transition ${
-              activeTab === 'collections' ? 'text-emerald-400 font-bold' : 'text-zinc-500'
-            }`}
-          >
-            <PhoneCall className="h-5 w-5"/>
-            Cobrança
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('ideas')}
-            className={`flex flex-col items-center gap-1 p-1 text-[10px] font-medium transition ${
-              activeTab === 'ideas' ? 'text-zinc-100' : 'text-zinc-500'
-            }`}
-          >
-            <Lightbulb className="h-5 w-5"/>
-            Ideias
-          </button>
+            );
+          })}
         </div>
       </nav>
     </div>
